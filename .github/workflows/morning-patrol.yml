@@ -30,10 +30,10 @@ jobs:
           EOF
 
       - name: Run main patrol
-        run: docker compose run --rm app python -u engine/main.py
+        run: docker compose run --rm --user root app python -u engine/main.py
 
       - name: Run youtube patrol
-        run: docker compose run --rm youtube python -u engine/youtube_job.py
+        run: docker compose run --rm --user root youtube python -u engine/youtube_job.py
 
       - name: Upload patrol artifacts
         uses: actions/upload-artifact@v4
