@@ -242,26 +242,37 @@ class PatrolStore:
 
     def _build_notification_text(self, result):
         diff = result["diff"]
+        snapshot = result["snapshot"]
         lines = [
-            "Patrol update",
-            f"- new_news: {diff['new_news_count']}",
-            f"- new_youtube: {diff['new_youtube_count']}",
-            f"- decisions: {diff['decision_count']}",
+            f"Patrol update {snapshot.get('timestamp')}",
+            f"Summary: news={diff['new_news_count']} youtube={diff['new_youtube_count']} decisions={diff['decision_count']}",
         ]
+
         for item in diff["new_news"][:3]:
-            lines.append(f"- news: [{item.get('source')}] {item.get('title')}")
+            lines.append(f"News: [{item.get('source')}] {item.get('title')}")
+
+        for item in snapshot.get("decisions", [])[:3]:
+            lines.append(
+                "Decision: "
+                f"{item.get('ticker')} {item.get('action')} "
+                f"confidence={item.get('confidence')}"
+            )
+
         return "\n".join(lines)
 
     def _build_youtube_notification_text(self, result):
         diff = result["diff"]
+        snapshot = result["snapshot"]
         lines = [
-            "YouTube patrol update",
-            f"- new_youtube: {diff['new_youtube_count']}",
+            f"YouTube patrol update {snapshot.get('timestamp')}",
+            f"Summary: new_youtube={diff['new_youtube_count']}",
         ]
         for item in diff["new_youtube"][:3]:
             sentiment = item.get("sentiment") or {}
             lines.append(
-                f"- [{item.get('channel')}] {item.get('title')} score={sentiment.get('score')}"
+                "Video: "
+                f"[{item.get('channel')}] {item.get('title')} "
+                f"score={sentiment.get('score')}"
             )
         return "\n".join(lines)
 
