@@ -1,0 +1,10 @@
+feedparser
+google-genai
+yfinance
+discord.py
+python-dotenv
+pandas
+requests
+matplotlib
+youtube-transcript-api
+yt-dlp

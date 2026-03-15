@@ -1,0 +1,27 @@
+{
+  "target_tickers": ["6501", "7203", "8035", "BTC-JPY"],
+  "check_interval_minutes": 30,
+  "enable_youtube_analysis": false,
+  "enable_youtube_job": true,
+  "youtube_max_videos": 1,
+  "risk": {
+    "default_stop_loss": 0.05,
+    "default_profit_taking": 0.15
+  },
+  "news_feeds": {
+    "Reuters": "https://www.reutersagency.com/feed/?best-topics=business-finance&post_type=best",
+    "Nikkei": "https://www.nikkei.com/rss/news/index.xml",
+    "Bloomberg": "https://www.bloomberg.co.jp/feeds/markets/index.xml"
+  },
+  "youtube_patrol_targets": {
+    "max_items": 1,
+    "request_timeout_seconds": 5,
+    "channels": [
+      {
+        "name": "TV Tokyo News",
+        "url": "https://www.youtube.com/c/tvtokyonews/videos"
+      }
+    ],
+    "search_keywords": ["日本株", "日経平均"]
+  }
+}

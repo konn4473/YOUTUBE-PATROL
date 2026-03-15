@@ -1,0 +1,33 @@
+services:
+  app:
+    build: .
+    volumes:
+      - .:/app
+      - ./data:/app/data
+    env_file:
+      - infra/.env
+    restart: "no"
+    stdin_open: true
+    tty: true
+    command: ["python", "engine/main.py"]
+
+  youtube:
+    build: .
+    volumes:
+      - .:/app
+      - ./data:/app/data
+    env_file:
+      - infra/.env
+    restart: "no"
+    stdin_open: true
+    tty: true
+    command: ["python", "engine/youtube_job.py"]
+
+  sim:
+    build: .
+    volumes:
+      - .:/app
+      - ./data:/app/data
+    env_file:
+      - infra/.env
+    command: ["python", "sims/test_v2_core.py"]

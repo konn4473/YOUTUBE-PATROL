@@ -1,0 +1,45 @@
+name: Morning Patrol
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 22 * * *"
+
+jobs:
+  patrol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare env file
+        shell: bash
+        run: |
+          mkdir -p infra
+          cat > infra/.env <<'EOF'
+          GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+          DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}
+          APP_ENV=production
+          LOG_LEVEL=INFO
+          GEMINI_REQUEST_TIMEOUT_SECONDS=10
+          GEMINI_MAX_RETRIES=2
+          GEMINI_RETRY_BACKOFF_SECONDS=3
+          GEMINI_COOLDOWN_SECONDS=300
+          EOF
+
+      - name: Run main patrol
+        run: docker compose run --rm app python -u engine/main.py
+
+      - name: Run youtube patrol
+        run: docker compose run --rm youtube python -u engine/youtube_job.py
+
+      - name: Upload patrol artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: patrol-data
+          path: |
+            data/patrol
+            data/youtube_patrol
+          if-no-files-found: warn
