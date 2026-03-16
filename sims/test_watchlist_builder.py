@@ -13,13 +13,16 @@ class TestWatchlistBuilder(unittest.TestCase):
             {
                 "日本株": ["6501", "7203"],
                 "原油": ["1605"],
-            }
+            },
+            rules={"top_ticker_limit": 10, "min_distinct_channels": 1, "min_distinct_groups": 1},
         )
         watchlist = builder.build(
             [
                 {
                     "title": "日本株と原油が急変",
                     "channel": "Ch1",
+                    "channel_group": "market_news",
+                    "channel_weight": 1.2,
                     "themes": ["日本株", "原油"],
                     "candidate_tickers": ["6501", "1605"],
                     "sentiment": {"score": -0.8},
@@ -28,6 +31,8 @@ class TestWatchlistBuilder(unittest.TestCase):
                 {
                     "title": "日本株を監視",
                     "channel": "Ch2",
+                    "channel_group": "stock_commentary",
+                    "channel_weight": 1.1,
                     "themes": ["日本株"],
                     "candidate_tickers": ["6501", "7203"],
                     "sentiment": {"score": 0.5},
@@ -39,6 +44,7 @@ class TestWatchlistBuilder(unittest.TestCase):
         self.assertEqual(watchlist["overall_action"], "WATCH")
         self.assertIn("日本株", [item["name"] for item in watchlist["themes"]])
         self.assertTrue(any(item["ticker"] == "6501" for item in watchlist["tickers"]))
+        self.assertTrue(any(item["group_count"] >= 2 for item in watchlist["tickers"]))
 
 
 if __name__ == "__main__":

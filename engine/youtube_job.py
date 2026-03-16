@@ -37,6 +37,7 @@ def main():
     youtube_max = config.get("youtube_max_videos", 1)
     youtube_enabled = config.get("enable_youtube_job", False)
     theme_ticker_map = config.get("theme_ticker_map", {})
+    watchlist_rules = config.get("watchlist_rules", {})
 
     if youtube_enabled and youtube_targets and analyzer.api_enabled:
         youtube_analyzer = YouTubeAnalyzer(
@@ -45,7 +46,9 @@ def main():
             theme_ticker_map=theme_ticker_map,
         )
         youtube_sentiment = youtube_analyzer.analyze(analyzer)
-        watchlist = WatchlistBuilder(theme_ticker_map).build(youtube_sentiment)
+        watchlist = WatchlistBuilder(theme_ticker_map, rules=watchlist_rules).build(
+            youtube_sentiment
+        )
 
     result = patrol_store.save_youtube_run(youtube_sentiment, watchlist=watchlist)
     webhook_url = os.getenv("DISCORD_WEBHOOK_URL")

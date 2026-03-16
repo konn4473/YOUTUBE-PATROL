@@ -3,7 +3,7 @@
   "check_interval_minutes": 30,
   "enable_youtube_analysis": false,
   "enable_youtube_job": true,
-  "youtube_max_videos": 1,
+  "youtube_max_videos": 2,
   "theme_ticker_map": {
     "日本株": ["6501", "7203", "8035"],
     "半導体": ["8035", "6920", "6857"],
@@ -19,20 +19,40 @@
     "default_stop_loss": 0.05,
     "default_profit_taking": 0.15
   },
+  "watchlist_rules": {
+    "top_ticker_limit": 10,
+    "top_theme_limit": 8,
+    "min_distinct_channels": 2,
+    "min_distinct_groups": 1,
+    "bullish_watch_threshold": 0.35,
+    "bearish_avoid_threshold": -0.35,
+    "buy_requires_price_confirmation": true
+  },
   "news_feeds": {
     "Reuters": "https://www.reutersagency.com/feed/?best-topics=business-finance&post_type=best",
     "Nikkei": "https://www.nikkei.com/rss/news/index.xml",
     "Bloomberg": "https://www.bloomberg.co.jp/feeds/markets/index.xml"
   },
   "youtube_patrol_targets": {
-    "max_items": 1,
-    "request_timeout_seconds": 5,
+    "max_items": 30,
+    "request_timeout_seconds": 8,
     "channels": [
       {
         "name": "TV Tokyo News",
-        "url": "https://www.youtube.com/c/tvtokyonews/videos"
+        "url": "https://www.youtube.com/c/tvtokyonews/videos",
+        "group": "market_news",
+        "weight": 1.2
       }
     ],
-    "search_keywords": ["日本株", "日経平均"]
+    "search_keywords": [
+      "日本株",
+      "日経平均",
+      "半導体株",
+      "防衛関連",
+      "商社株",
+      "銀行株",
+      "原油 日本株",
+      "円安 日本株"
+    ]
   }
 }

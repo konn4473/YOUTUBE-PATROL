@@ -32,47 +32,55 @@ class YouTubeAnalyzer:
             channel_url = self._resolve_channel_url(ch)
             if not channel_url:
                 continue
-            for v in self._extract_channel_videos(channel_url):
-                if v["video_id"] in seen:
+            for video in self._extract_channel_videos(channel_url):
+                if video["video_id"] in seen:
                     continue
-                v["source"] = f"channel:{ch.get('name', channel_url)}"
-                results.append(v)
-                seen.add(v["video_id"])
+                video["source"] = f"channel:{ch.get('name', channel_url)}"
+                video["channel_group"] = ch.get("group", "channel")
+                video["channel_weight"] = ch.get("weight", 1.0)
+                results.append(video)
+                seen.add(video["video_id"])
 
-        for kw in self.search_keywords:
-            for v in self._search_videos(kw):
-                if v["video_id"] in seen:
+        for keyword in self.search_keywords:
+            for video in self._search_videos(keyword):
+                if video["video_id"] in seen:
                     continue
-                v["source"] = f"search:{kw}"
-                results.append(v)
-                seen.add(v["video_id"])
+                video["source"] = f"search:{keyword}"
+                video["channel_group"] = "search"
+                video["channel_weight"] = 0.7
+                results.append(video)
+                seen.add(video["video_id"])
 
         return results[: self.max_items]
 
     def analyze(self, ai_analyzer):
         analyzed = []
-        for v in self.collect_targets():
-            transcript = self._fetch_transcript(v["video_id"])
-            text = self._build_text(v, transcript)
+        for video in self.collect_targets():
+            transcript = self._fetch_transcript(video["video_id"])
+            text = self._build_text(video, transcript)
             if len(text) > 6000:
                 text = text[:6000]
             if text.strip():
                 sentiment = ai_analyzer.analyze_sentiment(text)
             else:
                 sentiment = {"score": 0.0, "reason": "no text"}
-            themes = self._infer_themes(v, transcript, sentiment)
+            themes = self._infer_themes(video, transcript, sentiment)
             candidate_tickers = self._map_tickers(themes)
             analyzed.append(
                 {
-                    "video_id": v["video_id"],
-                    "title": v.get("title"),
-                    "channel": v.get("channel"),
-                    "published": v.get("published"),
-                    "source": v.get("source"),
+                    "video_id": video["video_id"],
+                    "title": video.get("title"),
+                    "channel": video.get("channel"),
+                    "published": video.get("published"),
+                    "source": video.get("source"),
+                    "channel_group": video.get("channel_group"),
+                    "channel_weight": video.get("channel_weight"),
                     "sentiment": sentiment,
                     "themes": themes,
                     "candidate_tickers": candidate_tickers,
-                    "confidence": self._confidence(sentiment, themes, candidate_tickers),
+                    "confidence": self._confidence(
+                        sentiment, themes, candidate_tickers, video.get("channel_weight")
+                    ),
                 }
             )
         return analyzed
@@ -85,7 +93,7 @@ class YouTubeAnalyzer:
             if not info:
                 return []
             entries = info.get("entries", [])[: self.max_videos]
-            return [self._normalize_entry(e) for e in entries if e]
+            return [self._normalize_entry(entry) for entry in entries if entry]
         except Exception:
             return []
 
@@ -98,7 +106,7 @@ class YouTubeAnalyzer:
             if not info:
                 return []
             entries = info.get("entries", [])
-            return [self._normalize_entry(e) for e in entries if e]
+            return [self._normalize_entry(entry) for entry in entries if entry]
         except Exception:
             return []
 
@@ -129,7 +137,7 @@ class YouTubeAnalyzer:
             )
             if not transcript:
                 return None
-            return " ".join([item.get("text", "") for item in transcript])
+            return " ".join(item.get("text", "") for item in transcript)
         except Exception:
             return None
 
@@ -193,12 +201,19 @@ class YouTubeAnalyzer:
                     continue
                 tickers.append(ticker)
                 seen.add(ticker)
-        return tickers[:6]
+        return tickers[:8]
 
-    def _confidence(self, sentiment, themes, candidate_tickers):
+    def _confidence(self, sentiment, themes, candidate_tickers, channel_weight):
         try:
             score = abs(float((sentiment or {}).get("score", 0.0)))
         except (TypeError, ValueError):
             score = 0.0
-        confidence = min(1.0, score + (0.1 * len(themes)) + (0.05 * len(candidate_tickers)))
+        try:
+            weight = float(channel_weight or 1.0)
+        except (TypeError, ValueError):
+            weight = 1.0
+        confidence = min(
+            1.0,
+            score + (0.08 * len(themes)) + (0.04 * len(candidate_tickers)) + (0.05 * weight),
+        )
         return round(confidence, 2)
