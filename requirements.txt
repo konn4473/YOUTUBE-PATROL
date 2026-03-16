@@ -8,3 +8,4 @@ requests
 matplotlib
 youtube-transcript-api
 yt-dlp
+boto3

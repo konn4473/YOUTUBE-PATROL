@@ -26,7 +26,8 @@
     "min_distinct_groups": 1,
     "bullish_watch_threshold": 0.35,
     "bearish_avoid_threshold": -0.35,
-    "buy_requires_price_confirmation": true
+    "buy_requires_price_confirmation": true,
+    "min_price_confirmation_change_pct": 0.5
   },
   "news_feeds": {
     "Reuters": "https://www.reutersagency.com/feed/?best-topics=business-finance&post_type=best",
@@ -36,6 +37,9 @@
   "youtube_patrol_targets": {
     "max_items": 30,
     "request_timeout_seconds": 8,
+    "recent_hours": 24,
+    "parallel_workers": 2,
+    "use_transcripts": false,
     "channels": [
       {
         "name": "TV Tokyo News",

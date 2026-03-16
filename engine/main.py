@@ -33,9 +33,10 @@ def main():
     tickers = config.get("target_tickers", ["6501", "7203"])
     patrol_store = PatrolStore(data_dir="data")
     latest_watchlist = patrol_store.load_latest_watchlist() or {}
+    watchlist_rules = config.get("watchlist_rules", {})
     watch_tickers = [
         item.get("ticker")
-        for item in latest_watchlist.get("tickers", [])[:3]
+        for item in latest_watchlist.get("tickers", [])[:5]
         if item.get("ticker") and item.get("action") == "WATCH"
     ]
     tickers = list(dict.fromkeys(tickers + watch_tickers))
@@ -48,6 +49,9 @@ def main():
     print("Fetching market/news...")
     market_data = collector.fetch_market_data()
     news_data = collector.fetch_news(feeds=config.get("news_feeds"))
+    confirmed_watch_tickers = confirmed_by_price(
+        latest_watchlist, market_data, watchlist_rules
+    )
 
     print("Risk monitor check...")
     alerts = broker.monitor_and_execute(market_data)
@@ -68,10 +72,14 @@ def main():
         "news": news_data,
         "youtube": youtube_sentiment,
         "watchlist": latest_watchlist,
+        "confirmed_watch_tickers": confirmed_watch_tickers,
         "portfolio": broker.portfolio,
     }
 
     decisions = analyzer.consult_council(context)
+    decisions = filter_decisions_by_watchlist(
+        decisions, latest_watchlist, confirmed_watch_tickers, watchlist_rules
+    )
     print(f"Council decisions: {len(decisions)}")
 
     for d in decisions:
@@ -105,6 +113,7 @@ def main():
             "news": news_data,
             "youtube": youtube_sentiment,
             "watchlist": latest_watchlist,
+            "confirmed_watch_tickers": confirmed_watch_tickers,
             "decisions": decisions,
             "portfolio": broker.portfolio,
         }
@@ -116,6 +125,46 @@ def main():
     print(f"Webhook notified: {notified}")
 
     print("Patrol complete.")
+
+
+def confirmed_by_price(watchlist, market_data, watchlist_rules):
+    if not watchlist_rules.get("buy_requires_price_confirmation", False):
+        return []
+    min_change = float(watchlist_rules.get("min_price_confirmation_change_pct", 0.5))
+    confirmed = []
+    for item in watchlist.get("tickers", [])[:10]:
+        if item.get("action") != "WATCH":
+            continue
+        ticker = item.get("ticker")
+        change_rate = market_data.get(ticker, {}).get("change_rate")
+        if change_rate is None:
+            continue
+        if change_rate >= min_change:
+            confirmed.append(ticker)
+    return confirmed
+
+
+def filter_decisions_by_watchlist(decisions, watchlist, confirmed_watch_tickers, watchlist_rules):
+    if not decisions:
+        return []
+    if not watchlist_rules.get("buy_requires_price_confirmation", False):
+        return decisions
+    watch_tickers = {
+        item.get("ticker")
+        for item in watchlist.get("tickers", [])[:10]
+        if item.get("ticker")
+    }
+    confirmed = set(confirmed_watch_tickers)
+    filtered = []
+    for item in decisions:
+        action = str(item.get("action", "")).lower()
+        ticker = item.get("ticker")
+        if action == "buy" and ticker in watch_tickers and ticker not in confirmed:
+            item = dict(item)
+            item["action"] = "watch"
+            item["logic"] = f"{item.get('logic', '')} price confirmation missing".strip()
+        filtered.append(item)
+    return filtered
 
 
 if __name__ == "__main__":

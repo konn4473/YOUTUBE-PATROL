@@ -209,6 +209,7 @@ class AIAnalyzer:
             "news": news_items,
             "youtube": youtube_items,
             "watchlist": self._compact_watchlist(data_context.get("watchlist", {})),
+            "confirmed_watch_tickers": data_context.get("confirmed_watch_tickers", [])[:10],
             "portfolio": {
                 "cash": portfolio.get("cash"),
                 "holdings": compact_holdings,

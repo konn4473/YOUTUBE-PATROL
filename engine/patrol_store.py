@@ -4,6 +4,8 @@ from datetime import datetime
 
 import requests
 
+from engine.external_store import ExternalStore
+
 
 class PatrolStore:
     def __init__(self, data_dir="data"):
@@ -20,8 +22,13 @@ class PatrolStore:
         self.youtube_latest_report_path = os.path.join(
             self.youtube_dir, "latest_report.md"
         )
-        self.watchlist_latest_path = os.path.join(self.youtube_dir, "latest_watchlist.json")
-        self.watchlist_report_path = os.path.join(self.youtube_dir, "watchlist_report.md")
+        self.watchlist_latest_path = os.path.join(
+            self.youtube_dir, "latest_watchlist.json"
+        )
+        self.watchlist_report_path = os.path.join(
+            self.youtube_dir, "watchlist_report.md"
+        )
+        self.external_store = ExternalStore()
 
         os.makedirs(self.history_dir, exist_ok=True)
         os.makedirs(self.youtube_history_dir, exist_ok=True)
@@ -36,12 +43,16 @@ class PatrolStore:
         self._write_json(self.latest_snapshot_path, snapshot)
         self._write_json(history_path, snapshot)
         self._write_text(self.latest_report_path, report)
+        uploads = self.external_store.upload_files(
+            [self.latest_snapshot_path, history_path, self.latest_report_path]
+        )
 
         return {
             "snapshot": snapshot,
             "diff": diff,
             "history_path": history_path,
             "report_path": self.latest_report_path,
+            "uploads": uploads,
         }
 
     def save_youtube_run(self, youtube_items, watchlist=None):
@@ -62,7 +73,12 @@ class PatrolStore:
                 for item in youtube_items
             ],
         }
-        watchlist = watchlist or {"timestamp": payload["timestamp"], "themes": [], "tickers": [], "overall_action": "NO SIGNAL"}
+        watchlist = watchlist or {
+            "timestamp": payload["timestamp"],
+            "themes": [],
+            "tickers": [],
+            "overall_action": "NO SIGNAL",
+        }
         previous = self.load_latest_youtube_snapshot()
         diff = self._build_youtube_diff(previous, payload)
         report = self._build_youtube_report(payload, diff, watchlist)
@@ -74,6 +90,15 @@ class PatrolStore:
         self._write_json(self.watchlist_latest_path, watchlist)
         self._write_text(self.youtube_latest_report_path, report)
         self._write_text(self.watchlist_report_path, watchlist_report)
+        uploads = self.external_store.upload_files(
+            [
+                self.youtube_latest_snapshot_path,
+                history_path,
+                self.watchlist_latest_path,
+                self.youtube_latest_report_path,
+                self.watchlist_report_path,
+            ]
+        )
 
         return {
             "snapshot": payload,
@@ -82,6 +107,7 @@ class PatrolStore:
             "history_path": history_path,
             "report_path": self.youtube_latest_report_path,
             "watchlist_report_path": self.watchlist_report_path,
+            "uploads": uploads,
         }
 
     def load_latest_snapshot(self):
@@ -143,6 +169,8 @@ class PatrolStore:
                 }
                 for item in payload.get("youtube", [])
             ],
+            "watchlist": payload.get("watchlist", {}),
+            "confirmed_watch_tickers": payload.get("confirmed_watch_tickers", []),
             "decisions": payload.get("decisions", []),
             "portfolio": payload.get("portfolio", {}),
         }
@@ -155,7 +183,9 @@ class PatrolStore:
             previous_youtube_ids = {item["id"] for item in previous.get("youtube", [])}
 
         new_news = [
-            item for item in current.get("news", []) if item["id"] not in previous_news_ids
+            item
+            for item in current.get("news", [])
+            if item["id"] not in previous_news_ids
         ]
         new_youtube = [
             item
@@ -192,6 +222,7 @@ class PatrolStore:
             f"- News items: {len(snapshot.get('news', []))}",
             f"- YouTube items: {len(snapshot.get('youtube', []))}",
             f"- Decisions: {len(snapshot.get('decisions', []))}",
+            f"- Confirmed watch tickers: {len(snapshot.get('confirmed_watch_tickers', []))}",
             f"- New news since last run: {diff['new_news_count']}",
             f"- New YouTube items since last run: {diff['new_youtube_count']}",
             "",
@@ -305,6 +336,10 @@ class PatrolStore:
             f"Action: {action}",
         ]
 
+        confirmed = snapshot.get("confirmed_watch_tickers", [])
+        if confirmed:
+            lines.append(f"Confirmed watch tickers: {', '.join(confirmed[:5])}")
+
         for item in diff["new_news"][:3]:
             lines.append(f"News: [{item.get('source')}] {item.get('title')}")
 
@@ -315,7 +350,9 @@ class PatrolStore:
                 f"confidence={item.get('confidence')}"
             )
 
-        lines.append("Trading note: Confirm with price action and risk limits before any order.")
+        lines.append(
+            "Trading note: Confirm with price action and risk limits before any order."
+        )
         return "\n".join(lines)
 
     def _build_youtube_notification_text(self, result):
@@ -324,7 +361,9 @@ class PatrolStore:
         watchlist = result.get("watchlist") or {}
         top_item = diff["new_youtube"][0] if diff["new_youtube"] else None
         action = watchlist.get("overall_action") or self._youtube_action(top_item)
-        themes = [item.get("name") for item in watchlist.get("themes", [])[:3]] or self._infer_youtube_themes(top_item)
+        themes = [item.get("name") for item in watchlist.get("themes", [])[:3]]
+        if not themes:
+            themes = self._infer_youtube_themes(top_item)
         lines = [
             f"YouTube patrol update {snapshot.get('timestamp')}",
             f"Summary: new_youtube={diff['new_youtube_count']}",
@@ -347,7 +386,9 @@ class PatrolStore:
                 f"[{item.get('channel')}] {item.get('title')} "
                 f"score={sentiment.get('score')}"
             )
-        lines.append("Trading note: YouTube alone is not a buy signal. Confirm with price and news.")
+        lines.append(
+            "Trading note: YouTube alone is not a buy signal. Confirm with price and news."
+        )
         return "\n".join(lines)
 
     def _youtube_action(self, item):
@@ -400,7 +441,7 @@ class PatrolStore:
         ]
         themes = []
         for theme, keywords in keyword_map:
-            if any(keyword in text for keyword in keywords):
+            if any(keyword.lower() in text for keyword in keywords):
                 themes.append(theme)
         return themes[:4]
 
@@ -430,9 +471,13 @@ class PatrolStore:
         return webhook_url.startswith("http://") or webhook_url.startswith("https://")
 
     def _news_id(self, item):
-        return f"{item.get('source', '')}|{item.get('title', '')}|{item.get('published', '')}"
+        return (
+            f"{item.get('source', '')}|{item.get('title', '')}|{item.get('published', '')}"
+        )
 
     def _youtube_id(self, item):
         if item.get("video_id"):
             return item["video_id"]
-        return f"{item.get('channel', '')}|{item.get('title', '')}|{item.get('published', '')}"
+        return (
+            f"{item.get('channel', '')}|{item.get('title', '')}|{item.get('published', '')}"
+        )

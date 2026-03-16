@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from datetime import datetime, timedelta
 
 import yt_dlp
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -13,6 +14,9 @@ class YouTubeAnalyzer:
         self.languages = languages or ["ja", "en"]
         self.theme_ticker_map = theme_ticker_map or {}
         self.request_timeout = targets.get("request_timeout_seconds", 15)
+        self.recent_hours = int(targets.get("recent_hours", 24))
+        self.parallel_workers = int(targets.get("parallel_workers", 2))
+        self.use_transcripts = bool(targets.get("use_transcripts", False))
         self.ydl = yt_dlp.YoutubeDL(
             {
                 "quiet": True,
@@ -51,12 +55,20 @@ class YouTubeAnalyzer:
                 results.append(video)
                 seen.add(video["video_id"])
 
-        return results[: self.max_items]
+        filtered = [video for video in results if self._is_recent(video.get("published"))]
+        return filtered[: self.max_items]
 
     def analyze(self, ai_analyzer):
-        analyzed = []
-        for video in self.collect_targets():
-            transcript = self._fetch_transcript(video["video_id"])
+        videos = self.collect_targets()
+        if not videos:
+            return []
+
+        def analyze_one(video):
+            transcript = (
+                self._fetch_transcript(video["video_id"])
+                if self._should_fetch_transcript(video)
+                else None
+            )
             text = self._build_text(video, transcript)
             if len(text) > 6000:
                 text = text[:6000]
@@ -66,24 +78,24 @@ class YouTubeAnalyzer:
                 sentiment = {"score": 0.0, "reason": "no text"}
             themes = self._infer_themes(video, transcript, sentiment)
             candidate_tickers = self._map_tickers(themes)
-            analyzed.append(
-                {
-                    "video_id": video["video_id"],
-                    "title": video.get("title"),
-                    "channel": video.get("channel"),
-                    "published": video.get("published"),
-                    "source": video.get("source"),
-                    "channel_group": video.get("channel_group"),
-                    "channel_weight": video.get("channel_weight"),
-                    "sentiment": sentiment,
-                    "themes": themes,
-                    "candidate_tickers": candidate_tickers,
-                    "confidence": self._confidence(
-                        sentiment, themes, candidate_tickers, video.get("channel_weight")
-                    ),
-                }
-            )
-        return analyzed
+            return {
+                "video_id": video["video_id"],
+                "title": video.get("title"),
+                "channel": video.get("channel"),
+                "published": video.get("published"),
+                "source": video.get("source"),
+                "channel_group": video.get("channel_group"),
+                "channel_weight": video.get("channel_weight"),
+                "sentiment": sentiment,
+                "themes": themes,
+                "candidate_tickers": candidate_tickers,
+                "confidence": self._confidence(
+                    sentiment, themes, candidate_tickers, video.get("channel_weight")
+                ),
+            }
+
+        with ThreadPoolExecutor(max_workers=max(1, self.parallel_workers)) as executor:
+            return list(executor.map(analyze_one, videos))
 
     def _extract_channel_videos(self, channel_url):
         try:
@@ -162,6 +174,29 @@ class YouTubeAnalyzer:
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
 
+    def _should_fetch_transcript(self, video):
+        if not self.use_transcripts:
+            return False
+        seed_text = " ".join(
+            str(part)
+            for part in [video.get("title", ""), video.get("description", "")]
+            if part
+        )
+        return len(seed_text) < 1200
+
+    def _is_recent(self, published):
+        if not published:
+            return True
+        try:
+            if len(published) == 8:
+                published_dt = datetime.strptime(published, "%Y%m%d")
+            else:
+                published_dt = datetime.fromisoformat(published)
+        except ValueError:
+            return True
+        cutoff = datetime.now() - timedelta(hours=self.recent_hours)
+        return published_dt >= cutoff
+
     def _infer_themes(self, video, transcript, sentiment):
         text = " ".join(
             str(part)
@@ -188,7 +223,7 @@ class YouTubeAnalyzer:
         ]
         themes = []
         for theme, keywords in keyword_map:
-            if any(keyword in text for keyword in keywords):
+            if any(keyword.lower() in text for keyword in keywords):
                 themes.append(theme)
         return themes[:5]
 
@@ -214,6 +249,9 @@ class YouTubeAnalyzer:
             weight = 1.0
         confidence = min(
             1.0,
-            score + (0.08 * len(themes)) + (0.04 * len(candidate_tickers)) + (0.05 * weight),
+            score
+            + (0.08 * len(themes))
+            + (0.04 * len(candidate_tickers))
+            + (0.05 * weight),
         )
         return round(confidence, 2)
