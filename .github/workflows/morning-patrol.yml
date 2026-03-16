@@ -8,7 +8,7 @@ on:
 jobs:
   patrol:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -24,9 +24,9 @@ jobs:
           APP_ENV=production
           LOG_LEVEL=INFO
           GEMINI_REQUEST_TIMEOUT_SECONDS=10
-          GEMINI_MAX_RETRIES=2
-          GEMINI_RETRY_BACKOFF_SECONDS=3
-          GEMINI_COOLDOWN_SECONDS=300
+          GEMINI_MAX_RETRIES=0
+          GEMINI_RETRY_BACKOFF_SECONDS=1
+          GEMINI_COOLDOWN_SECONDS=60
           EOF
 
       - name: Run main patrol
