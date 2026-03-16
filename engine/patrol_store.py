@@ -174,6 +174,8 @@ class PatrolStore:
             "confirmed_watch_tickers": payload.get("confirmed_watch_tickers", []),
             "ai_proposals": payload.get("ai_proposals", []),
             "shortlisted_candidates": payload.get("shortlisted_candidates", []),
+            "paper_trade_summary": payload.get("paper_trade_summary", {}),
+            "paper_trade_events": payload.get("paper_trade_events", []),
             "decisions": payload.get("decisions", []),
             "portfolio": payload.get("portfolio", {}),
         }
@@ -226,6 +228,7 @@ class PatrolStore:
             f"- YouTube items: {len(snapshot.get('youtube', []))}",
             f"- AI proposals: {len(snapshot.get('ai_proposals', []))}",
             f"- Shortlisted candidates: {len(snapshot.get('shortlisted_candidates', []))}",
+            f"- Paper trade events: {len(snapshot.get('paper_trade_events', []))}",
             f"- Decisions: {len(snapshot.get('decisions', []))}",
             f"- Confirmed watch tickers: {len(snapshot.get('confirmed_watch_tickers', []))}",
             f"- New news since last run: {diff['new_news_count']}",
@@ -266,6 +269,26 @@ class PatrolStore:
                     f"- {item.get('ticker')}: {item.get('action')} ({item.get('confidence')}) "
                     f"news_support={item.get('has_news_support')} change={item.get('change_rate')}"
                 )
+        else:
+            lines.append("- None")
+
+        lines.extend(["", "## Paper Trade Summary"])
+        paper_summary = snapshot.get("paper_trade_summary") or {}
+        if paper_summary:
+            lines.append(f"- Open positions: {paper_summary.get('open_positions', 0)}")
+            lines.append(f"- Closed trades: {paper_summary.get('closed_trades', 0)}")
+            lines.append(f"- Win rate: {paper_summary.get('win_rate', 0)}%")
+            lines.append(f"- Realized PnL: {paper_summary.get('realized_pnl', 0)}")
+            lines.append(f"- Unrealized PnL: {paper_summary.get('unrealized_pnl', 0)}")
+            lines.append(f"- Total PnL: {paper_summary.get('total_pnl', 0)}")
+            positions = paper_summary.get("positions", [])
+            if positions:
+                lines.append("- Open position preview:")
+                for item in positions[:3]:
+                    lines.append(
+                        f"  - {item.get('ticker')}: entry={item.get('entry_price')} "
+                        f"current={item.get('current_price')} pnl={item.get('unrealized_pnl')}"
+                    )
         else:
             lines.append("- None")
 
@@ -396,6 +419,15 @@ class PatrolStore:
         confirmed = snapshot.get("confirmed_watch_tickers", [])
         if confirmed:
             lines.append(f"価格確認済み監視銘柄: {', '.join(confirmed[:5])}")
+
+        paper_summary = snapshot.get("paper_trade_summary") or {}
+        if paper_summary:
+            lines.append(
+                "紙上売買: "
+                f"決済={paper_summary.get('closed_trades', 0)} "
+                f"保有={paper_summary.get('open_positions', 0)} "
+                f"合計損益={paper_summary.get('total_pnl', 0)}"
+            )
 
         for item in snapshot.get("ai_proposals", [])[:3]:
             lines.append(

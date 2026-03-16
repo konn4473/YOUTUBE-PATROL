@@ -2,28 +2,30 @@
 
 最終更新: 2026-03-16
 
-## 現在の目的
+## 目的
+`youtube_patrol_v2` は、YouTube とニュースを使って監視候補を抽出し、価格確認を通したうえで売買判断の材料を作る巡回システムです。
 
-`youtube_patrol_v2` は、YouTube・ニュース・市場データを使って監視候補を抽出し、最終的な売買判断の前段を支える監視システムです。
+## いまできること
 
-## 今できること
-
-- YouTube から動画候補を収集する
+- YouTube から動画候補を集める
 - テーマを抽出する
 - 候補銘柄を watchlist 化する
-- AI が候補銘柄を提案する
-- 価格確認ルールで `BUY` を `WATCH` に落とす
-- `main patrol` と `youtube patrol` を分離して実行する
-- GitHub Actions で毎朝実行する
-- Discord に `Action` 付きで通知する
+- `BUY / WATCH / AVOID / NO SIGNAL` の行動ラベルを出す
+- ニュースと価格で裏取りする
+- AI 提案を出す
+- AI 提案の紙上売買を記録し、仮想損益を集計する
+- GitHub Actions で毎朝 7:30 JST に実行する
+- Discord に通知する
+- Gemini の呼び出し量を抑える軽量設定で運用する
 
 ## 現在の運用フロー
 
-1. YouTube の多数決で話題を拾う
-2. watchlist を作る
+1. YouTube の固定チャンネルと検索結果を収集する
+2. テーマと候補銘柄を watchlist にまとめる
 3. AI が候補を提案する
-4. ニュースと価格で確認する
+4. ニュースと価格で裏取りする
 5. council が最終判断する
+6. AI 提案は紙上売買にも記録し、損益を追跡する
 
 ## 現在の監視対象
 
@@ -64,12 +66,19 @@
 - 原油 日本株
 - 円安 日本株
 
-## 現在の保存先
+### 現在の軽量設定
+
+- `youtube_max_videos = 1`
+- `youtube_patrol_targets.max_items = 20`
+- Gemini retry は GitHub Actions で最小化済み
+
+## 保存ファイル
 
 ### main patrol
 
 - `data/patrol/latest_report.md`
 - `data/patrol/latest_snapshot.json`
+- `data/patrol/history/...`
 
 ### youtube patrol
 
@@ -78,14 +87,23 @@
 - `data/youtube_patrol/latest_watchlist.json`
 - `data/youtube_patrol/watchlist_report.md`
 
-## 現在分かっていること
+### 紙上売買
 
-- ローカルの `youtube` 同期実行は重く、待機上限にかかることがある
-- ただし出力ファイルは更新されるため、処理自体は進んでいる
-- 直近の watchlist は検索由来が強く、固定チャンネル由来はまだ弱い
+- `data/paper_ai_positions.json`
+- `data/paper_ai_history.json`
+- `data/paper_ai_signals.json`
+- `data/paper_ai_summary.json`
 
-## 直近の注目点
+## 現在わかっていること
 
-- Discord とレポートで `fixed / search` の比率が見えるようになった
-- AI 提案は `NO SIGNAL` の日は無理に出さない
-- 固定チャンネルは 10 件まで拡張済み
+- GitHub Actions では完走できている
+- 実行時間と quota を見て、YouTube 処理量は少し抑えた
+- 実行時間はやや長めなので、今後も監視は必要
+- Gemini の quota によっては日によって応答が重くなる
+- watchlist はまだ検索由来が強く、固定チャンネル由来は観察中
+
+## 直近の評価
+
+- 監視対象は現時点では増やしすぎない方がよい
+- YouTube は直接売買判断ではなく、候補抽出に使う方が安全
+- AI は本番自動売買ではなく、まず提案と紙上売買で検証する

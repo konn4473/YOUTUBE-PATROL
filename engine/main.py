@@ -9,6 +9,7 @@ sys.path.append(os.getcwd())
 from engine.collector import DataCollector
 from engine.analyzer import AIAnalyzer
 from engine.broker import MockBroker
+from engine.paper_trade_tracker import PaperTradeTracker
 from engine.patrol_store import PatrolStore
 from engine.youtube_analyzer import YouTubeAnalyzer
 
@@ -44,6 +45,7 @@ def main():
     collector = DataCollector(tickers=tickers)
     analyzer = AIAnalyzer()
     broker = MockBroker(data_dir="data")
+    paper_tracker = PaperTradeTracker(data_dir="data")
 
     print(f"Tickers: {', '.join(tickers)}")
     print("Fetching market/news...")
@@ -52,6 +54,7 @@ def main():
     confirmed_watch_tickers = confirmed_by_price(
         latest_watchlist, market_data, watchlist_rules
     )
+    paper_trade_events = paper_tracker.mark_to_market(market_data)
 
     print("Risk monitor check...")
     alerts = broker.monitor_and_execute(market_data)
@@ -87,6 +90,19 @@ def main():
     )
     context["ai_proposals"] = ai_proposals
     context["shortlisted_candidates"] = shortlisted_candidates
+    paper_tracker.record_signal_run(
+        ai_proposals,
+        shortlisted_candidates,
+        market_data,
+    )
+    paper_trade_events.extend(
+        paper_tracker.apply_shortlisted_candidates(
+            shortlisted_candidates,
+            market_data,
+            config.get("risk", {}),
+        )
+    )
+    paper_trade_summary = paper_tracker.build_summary(market_data)
 
     decisions = analyzer.consult_council(context)
     decisions = filter_decisions_by_watchlist(
@@ -128,6 +144,8 @@ def main():
             "confirmed_watch_tickers": confirmed_watch_tickers,
             "ai_proposals": ai_proposals,
             "shortlisted_candidates": shortlisted_candidates,
+            "paper_trade_summary": paper_trade_summary,
+            "paper_trade_events": paper_trade_events,
             "decisions": decisions,
             "portfolio": broker.portfolio,
         }

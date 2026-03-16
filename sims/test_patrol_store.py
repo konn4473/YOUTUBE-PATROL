@@ -24,6 +24,7 @@ class TestPatrolStore(unittest.TestCase):
                 "news": [{"source": "Reuters", "title": "A", "published": "2026-01-01"}],
                 "youtube": [],
                 "decisions": [],
+                "paper_trade_summary": {"open_positions": 0, "closed_trades": 0, "total_pnl": 0},
                 "portfolio": {"cash": 1000000, "holdings": {}},
             }
         )
@@ -37,6 +38,7 @@ class TestPatrolStore(unittest.TestCase):
                 "youtube": [
                     {"video_id": "vid1", "title": "Video", "channel": "Ch", "published": "2026-01-02"}
                 ],
+                "paper_trade_summary": {"open_positions": 1, "closed_trades": 0, "total_pnl": 1200},
                 "decisions": [{"ticker": "6501", "action": "wait", "confidence": 50}],
                 "portfolio": {"cash": 1000000, "holdings": {}},
             }
@@ -47,6 +49,8 @@ class TestPatrolStore(unittest.TestCase):
         self.assertEqual(second["diff"]["new_news_count"], 1)
         self.assertEqual(second["diff"]["new_youtube_count"], 1)
         self.assertEqual(second["diff"]["decision_count"], 1)
+        with open(second["report_path"], encoding="utf-8-sig") as f:
+            self.assertIn("## Paper Trade Summary", f.read())
 
     def test_youtube_notification_text_includes_action(self):
         watchlist = {
@@ -75,12 +79,13 @@ class TestPatrolStore(unittest.TestCase):
         self.assertIn("候補銘柄: 1605(見送り)", text)
         self.assertIn("補足: YouTube 単独では買いシグナルにしません。", text)
 
-    def test_main_notification_text_includes_action(self):
+    def test_main_notification_text_includes_action_and_paper_trade_summary(self):
         result = self.store.save_run(
             {
                 "market": {"6501": {"price": 101.0}},
                 "news": [{"source": "Reuters", "title": "Factory orders rise", "published": "2026-01-02"}],
                 "youtube": [],
+                "paper_trade_summary": {"open_positions": 1, "closed_trades": 2, "total_pnl": 3500},
                 "decisions": [{"ticker": "6501", "action": "buy", "confidence": 72}],
                 "portfolio": {"cash": 1000000, "holdings": {}},
             }
@@ -88,6 +93,7 @@ class TestPatrolStore(unittest.TestCase):
         text = self.store._build_notification_text(result)
 
         self.assertIn("行動: 買い", text)
+        self.assertIn("紙上売買: 決済=2 保有=1 合計損益=3500", text)
         self.assertIn("判断: 6501 買い 信頼度=72", text)
         self.assertIn("補足: 注文前に値動きとリスク上限を必ず確認してください。", text)
 
