@@ -127,6 +127,25 @@ docker-compose run --rm sim python sims/test_main_helpers.py
 - [DECISIONS.md](/C:/AI/Share/youtube_patrol_v2/DECISIONS.md)
 - [NEXT_STEPS.md](/C:/AI/Share/youtube_patrol_v2/NEXT_STEPS.md)
 
+### 記録更新ルール
+
+大きな変更のたびに、次のファイルを更新する運用にします。
+
+1. 実装や監視対象、出力先が変わったとき
+   - [PROJECT_STATUS.md](/C:/AI/Share/youtube_patrol_v2/PROJECT_STATUS.md)
+
+2. 方針や判断基準を決めたとき
+   - [DECISIONS.md](/C:/AI/Share/youtube_patrol_v2/DECISIONS.md)
+
+3. 次にやることや優先度が変わったとき
+   - [NEXT_STEPS.md](/C:/AI/Share/youtube_patrol_v2/NEXT_STEPS.md)
+
+補足:
+
+- 小さな文言修正だけなら更新は不要
+- 機能追加、通知変更、監視対象変更、運用ルール変更のときは更新する
+- commit 前に、この3ファイルの更新要否を必ず確認する
+
 ## 運用の考え方
 
 このプロジェクトは「いきなり買う bot」ではなく、「監視候補を見つけて、次の判断材料に渡す bot」として設計しています。
