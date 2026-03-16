@@ -67,6 +67,22 @@ class TestPatrolStore(unittest.TestCase):
         self.assertIn("Themes: 日本株, 原油", text)
         self.assertIn("Trading note: YouTube alone is not a buy signal.", text)
 
+    def test_main_notification_text_includes_action(self):
+        result = self.store.save_run(
+            {
+                "market": {"6501": {"price": 101.0}},
+                "news": [{"source": "Reuters", "title": "Factory orders rise", "published": "2026-01-02"}],
+                "youtube": [],
+                "decisions": [{"ticker": "6501", "action": "buy", "confidence": 72}],
+                "portfolio": {"cash": 1000000, "holdings": {}},
+            }
+        )
+        text = self.store._build_notification_text(result)
+
+        self.assertIn("Action: BUY", text)
+        self.assertIn("Decision: 6501 buy confidence=72", text)
+        self.assertIn("Trading note: Confirm with price action and risk limits before any order.", text)
+
 
 if __name__ == "__main__":
     unittest.main()

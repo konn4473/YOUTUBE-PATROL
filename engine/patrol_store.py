@@ -243,9 +243,11 @@ class PatrolStore:
     def _build_notification_text(self, result):
         diff = result["diff"]
         snapshot = result["snapshot"]
+        action = self._main_action(snapshot, diff)
         lines = [
             f"Patrol update {snapshot.get('timestamp')}",
             f"Summary: news={diff['new_news_count']} youtube={diff['new_youtube_count']} decisions={diff['decision_count']}",
+            f"Action: {action}",
         ]
 
         for item in diff["new_news"][:3]:
@@ -258,6 +260,7 @@ class PatrolStore:
                 f"confidence={item.get('confidence')}"
             )
 
+        lines.append("Trading note: Confirm with price action and risk limits before any order.")
         return "\n".join(lines)
 
     def _build_youtube_notification_text(self, result):
@@ -295,6 +298,19 @@ class PatrolStore:
         if score <= -0.4:
             return "AVOID"
         if score >= 0.6:
+            return "WATCH"
+        return "NO SIGNAL"
+
+    def _main_action(self, snapshot, diff):
+        decisions = snapshot.get("decisions", [])
+        actions = {str(item.get("action", "")).upper() for item in decisions}
+        if "BUY" in actions:
+            return "BUY"
+        if "SELL" in actions:
+            return "SELL"
+        if decisions:
+            return "WATCH"
+        if diff["new_news_count"] > 0 or diff["new_youtube_count"] > 0:
             return "WATCH"
         return "NO SIGNAL"
 
