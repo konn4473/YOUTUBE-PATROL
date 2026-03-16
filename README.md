@@ -119,6 +119,14 @@ docker-compose run --rm sim python sims/test_main_helpers.py
 
 詳しくは [docs/github_actions_guide.md](/C:/AI/Share/youtube_patrol_v2/docs/github_actions_guide.md) にまとめています。
 
+運用方針は [docs/operation.md](/C:/AI/Share/youtube_patrol_v2/docs/operation.md) にまとめています。
+
+会話をまたいで状態を追いやすくするためのファイル:
+
+- [PROJECT_STATUS.md](/C:/AI/Share/youtube_patrol_v2/PROJECT_STATUS.md)
+- [DECISIONS.md](/C:/AI/Share/youtube_patrol_v2/DECISIONS.md)
+- [NEXT_STEPS.md](/C:/AI/Share/youtube_patrol_v2/NEXT_STEPS.md)
+
 ## 運用の考え方
 
 このプロジェクトは「いきなり買う bot」ではなく、「監視候補を見つけて、次の判断材料に渡す bot」として設計しています。

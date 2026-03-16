@@ -127,6 +127,7 @@ class PatrolStore:
             diff["new_news_count"] > 0
             or diff["new_youtube_count"] > 0
             or diff["decision_count"] > 0
+            or len(result["snapshot"].get("ai_proposals", [])) > 0
         )
         if not interesting:
             return False
@@ -171,6 +172,8 @@ class PatrolStore:
             ],
             "watchlist": payload.get("watchlist", {}),
             "confirmed_watch_tickers": payload.get("confirmed_watch_tickers", []),
+            "ai_proposals": payload.get("ai_proposals", []),
+            "shortlisted_candidates": payload.get("shortlisted_candidates", []),
             "decisions": payload.get("decisions", []),
             "portfolio": payload.get("portfolio", {}),
         }
@@ -221,6 +224,8 @@ class PatrolStore:
             f"- Market tickers: {len(snapshot.get('market', {}))}",
             f"- News items: {len(snapshot.get('news', []))}",
             f"- YouTube items: {len(snapshot.get('youtube', []))}",
+            f"- AI proposals: {len(snapshot.get('ai_proposals', []))}",
+            f"- Shortlisted candidates: {len(snapshot.get('shortlisted_candidates', []))}",
             f"- Decisions: {len(snapshot.get('decisions', []))}",
             f"- Confirmed watch tickers: {len(snapshot.get('confirmed_watch_tickers', []))}",
             f"- New news since last run: {diff['new_news_count']}",
@@ -241,6 +246,25 @@ class PatrolStore:
             for ticker, item in snapshot["market"].items():
                 lines.append(
                     f"- {ticker}: price={item.get('price')} change={item.get('change_rate')}%"
+                )
+        else:
+            lines.append("- None")
+
+        lines.extend(["", "## AI Proposals"])
+        if snapshot.get("ai_proposals"):
+            for item in snapshot["ai_proposals"][:5]:
+                lines.append(
+                    f"- {item.get('ticker')}: {item.get('action')} ({item.get('confidence')}) {item.get('logic')}"
+                )
+        else:
+            lines.append("- None")
+
+        lines.extend(["", "## Shortlisted Candidates"])
+        if snapshot.get("shortlisted_candidates"):
+            for item in snapshot["shortlisted_candidates"][:5]:
+                lines.append(
+                    f"- {item.get('ticker')}: {item.get('action')} ({item.get('confidence')}) "
+                    f"news_support={item.get('has_news_support')} change={item.get('change_rate')}"
                 )
         else:
             lines.append("- None")
@@ -297,13 +321,41 @@ class PatrolStore:
         return "\n".join(lines)
 
     def _build_watchlist_report(self, watchlist):
+        source_summary = watchlist.get("source_summary") or {}
         lines = [
             f"# YouTube Watchlist {watchlist.get('timestamp')}",
             "",
             f"- Overall action: {watchlist.get('overall_action', 'NO SIGNAL')}",
             "",
-            "## Top Themes",
+            "## Source Summary",
+            f"- Fixed channel items: {source_summary.get('fixed_channel_items', 0)}",
+            f"- Search items: {source_summary.get('search_items', 0)}",
+            f"- Fixed channels seen: {source_summary.get('fixed_channel_count', 0)}",
+            f"- Search keywords seen: {source_summary.get('search_keyword_count', 0)}",
         ]
+        top_fixed_channels = source_summary.get("top_fixed_channels") or []
+        if top_fixed_channels:
+            lines.append(
+                "- Top fixed channels: "
+                + ", ".join(
+                    f"{item.get('name')}({item.get('count')})"
+                    for item in top_fixed_channels[:3]
+                )
+            )
+        top_search_keywords = source_summary.get("top_search_keywords") or []
+        if top_search_keywords:
+            lines.append(
+                "- Top search keywords: "
+                + ", ".join(
+                    f"{item.get('keyword')}({item.get('count')})"
+                    for item in top_search_keywords[:3]
+                )
+            )
+
+        lines.extend([
+            "",
+            "## Top Themes",
+        ])
         themes = watchlist.get("themes", [])
         if themes:
             for item in themes[:5]:
@@ -340,6 +392,12 @@ class PatrolStore:
         if confirmed:
             lines.append(f"Confirmed watch tickers: {', '.join(confirmed[:5])}")
 
+        for item in snapshot.get("ai_proposals", [])[:3]:
+            lines.append(
+                "AI proposal: "
+                f"{item.get('ticker')} {item.get('action')} confidence={item.get('confidence')}"
+            )
+
         for item in diff["new_news"][:3]:
             lines.append(f"News: [{item.get('source')}] {item.get('title')}")
 
@@ -359,6 +417,7 @@ class PatrolStore:
         diff = result["diff"]
         snapshot = result["snapshot"]
         watchlist = result.get("watchlist") or {}
+        source_summary = watchlist.get("source_summary") or {}
         top_item = diff["new_youtube"][0] if diff["new_youtube"] else None
         action = watchlist.get("overall_action") or self._youtube_action(top_item)
         themes = [item.get("name") for item in watchlist.get("themes", [])[:3]]
@@ -369,6 +428,20 @@ class PatrolStore:
             f"Summary: new_youtube={diff['new_youtube_count']}",
             f"Action: {action}",
         ]
+        lines.append(
+            "Sources: "
+            f"fixed={source_summary.get('fixed_channel_items', 0)} "
+            f"search={source_summary.get('search_items', 0)}"
+        )
+        top_fixed_channels = source_summary.get("top_fixed_channels") or []
+        if top_fixed_channels:
+            lines.append(
+                "Top fixed channels: "
+                + ", ".join(
+                    f"{item.get('name')}({item.get('count')})"
+                    for item in top_fixed_channels[:3]
+                )
+            )
         if themes:
             lines.append(f"Themes: {', '.join(themes)}")
         top_tickers = watchlist.get("tickers", [])[:3]
@@ -414,6 +487,8 @@ class PatrolStore:
         if "SELL" in actions:
             return "SELL"
         if decisions:
+            return "WATCH"
+        if snapshot.get("ai_proposals"):
             return "WATCH"
         if diff["new_news_count"] > 0 or diff["new_youtube_count"] > 0:
             return "WATCH"

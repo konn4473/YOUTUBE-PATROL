@@ -40,6 +40,12 @@ class WatchlistBuilder:
                 "reasons": set(),
             }
         )
+        source_stats = {
+            "fixed_channel_items": 0,
+            "search_items": 0,
+            "fixed_channels": defaultdict(int),
+            "search_keywords": defaultdict(int),
+        }
 
         for item in youtube_items:
             sentiment = item.get("sentiment") or {}
@@ -49,6 +55,15 @@ class WatchlistBuilder:
             tickers = item.get("candidate_tickers") or []
             channel = item.get("channel")
             group = item.get("channel_group") or "search"
+            source = item.get("source") or ""
+
+            if str(source).startswith("search:"):
+                source_stats["search_items"] += 1
+                keyword = str(source).split("search:", 1)[1] or "unknown"
+                source_stats["search_keywords"][keyword] += 1
+            elif channel:
+                source_stats["fixed_channel_items"] += 1
+                source_stats["fixed_channels"][channel] += 1
 
             for theme in themes:
                 stats = theme_stats[theme]
@@ -75,7 +90,6 @@ class WatchlistBuilder:
                 stats["groups"].add(group)
                 for theme in themes:
                     stats["reasons"].add(f"theme:{theme}")
-                source = item.get("source")
                 if source:
                     stats["reasons"].add(source)
                 stats["reasons"].add(f"group:{group}")
@@ -88,6 +102,32 @@ class WatchlistBuilder:
             "themes": top_themes[: self.top_theme_limit],
             "tickers": top_tickers[: self.top_ticker_limit],
             "overall_action": self._overall_action(top_tickers),
+            "source_summary": self._build_source_summary(source_stats),
+        }
+
+    def _build_source_summary(self, source_stats):
+        fixed_channels = sorted(
+            source_stats["fixed_channels"].items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        search_keywords = sorted(
+            source_stats["search_keywords"].items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        return {
+            "fixed_channel_items": source_stats["fixed_channel_items"],
+            "search_items": source_stats["search_items"],
+            "fixed_channel_count": len(source_stats["fixed_channels"]),
+            "search_keyword_count": len(source_stats["search_keywords"]),
+            "top_fixed_channels": [
+                {"name": name, "count": count} for name, count in fixed_channels[:5]
+            ],
+            "top_search_keywords": [
+                {"keyword": keyword, "count": count}
+                for keyword, count in search_keywords[:5]
+            ],
         }
 
     def _build_theme_rows(self, theme_stats):

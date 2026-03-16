@@ -63,10 +63,14 @@ class AIAnalyzer:
             return []
         if not compact_context.get("news") and not compact_context.get("youtube"):
             return []
+        if compact_context.get("shortlisted_candidates") == [] and compact_context.get("ai_proposals"):
+            return []
         prompt = (
             "You are an investment council. Review the following market, news, YouTube, "
-            "watchlist, and portfolio context. Return a JSON array of trade decisions. "
+            "AI proposals, shortlisted candidates, watchlist, and portfolio context. "
+            "Return a JSON array of trade decisions. "
             "Return at most 3 items. Prefer wait if evidence is weak. "
+            "When shortlisted_candidates are present, only consider those tickers for BUY or SELL. "
             "Each item must contain ticker, action, confidence, logic, sl_rate, and tp_rate.\n\n"
             f"Context:\n{json.dumps(compact_context, ensure_ascii=False, indent=2)}"
         )
@@ -77,6 +81,40 @@ class AIAnalyzer:
             return self._parse_json_response(response_text, [])
         except Exception as exc:
             print(f"Council analysis failed: {exc}")
+            return []
+
+    def propose_trade_candidates(self, data_context):
+        if not self.api_enabled:
+            return []
+        if self._get_cooldown_reason():
+            return []
+
+        compact_context = self._compact_context(data_context)
+        watchlist = compact_context.get("watchlist", {})
+        if not watchlist.get("tickers"):
+            return []
+        if watchlist.get("overall_action") == "NO SIGNAL" and not any(
+            item.get("action") in {"WATCH", "AVOID"} for item in watchlist.get("tickers", [])
+        ):
+            return []
+
+        prompt = (
+            "You are an AI trading assistant. Review the following market, news, YouTube, and watchlist context. "
+            "Propose up to 3 candidate tickers and label each as BUY, WATCH, AVOID, or NO SIGNAL. "
+            "BUY should be used only when evidence is strong. "
+            "Return a JSON array. Each item must contain ticker, action, confidence, and logic.\n\n"
+            f"Context:\n{json.dumps(compact_context, ensure_ascii=False, indent=2)}"
+        )
+        try:
+            response_text = self._generate_content("gemini-2.0-flash", prompt)
+            if not response_text:
+                return []
+            parsed = self._parse_json_response(response_text, [])
+            if not isinstance(parsed, list):
+                return []
+            return parsed[:3]
+        except Exception as exc:
+            print(f"AI proposal generation failed: {exc}")
             return []
 
     def _generate_content(self, model, prompt):
@@ -109,9 +147,17 @@ class AIAnalyzer:
             except requests.HTTPError as exc:
                 last_error = exc
                 status_code = exc.response.status_code if exc.response else None
+                error_body = ""
+                if exc.response is not None:
+                    try:
+                        error_body = exc.response.text[:500]
+                    except Exception:
+                        error_body = ""
                 if status_code == 429:
                     self._set_cooldown()
                 if status_code != 429 or attempt >= self.max_retries:
+                    if error_body:
+                        print(f"Gemini error body ({model}): {error_body}")
                     raise
                 sleep_seconds = self.retry_backoff_seconds * (attempt + 1)
                 print(
@@ -210,6 +256,8 @@ class AIAnalyzer:
             "youtube": youtube_items,
             "watchlist": self._compact_watchlist(data_context.get("watchlist", {})),
             "confirmed_watch_tickers": data_context.get("confirmed_watch_tickers", [])[:10],
+            "ai_proposals": data_context.get("ai_proposals", [])[:5],
+            "shortlisted_candidates": data_context.get("shortlisted_candidates", [])[:5],
             "portfolio": {
                 "cash": portfolio.get("cash"),
                 "holdings": compact_holdings,
@@ -221,6 +269,23 @@ class AIAnalyzer:
             return {}
         return {
             "overall_action": watchlist.get("overall_action"),
-            "themes": watchlist.get("themes", [])[:3],
-            "tickers": watchlist.get("tickers", [])[:5],
+            "themes": [
+                {
+                    "name": item.get("name"),
+                    "action": item.get("action"),
+                    "score": item.get("score"),
+                    "video_count": item.get("video_count"),
+                }
+                for item in watchlist.get("themes", [])[:3]
+            ],
+            "tickers": [
+                {
+                    "ticker": item.get("ticker"),
+                    "action": item.get("action"),
+                    "score": item.get("score"),
+                    "avg_sentiment": item.get("avg_sentiment"),
+                    "mention_count": item.get("mention_count"),
+                }
+                for item in watchlist.get("tickers", [])[:5]
+            ],
         }

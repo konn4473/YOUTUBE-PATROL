@@ -4,7 +4,11 @@ import unittest
 
 sys.path.append(os.getcwd())
 
-from engine.main import confirmed_by_price, filter_decisions_by_watchlist
+from engine.main import (
+    confirmed_by_price,
+    filter_decisions_by_watchlist,
+    shortlist_ai_proposals,
+)
 
 
 class TestMainHelpers(unittest.TestCase):
@@ -37,6 +41,30 @@ class TestMainHelpers(unittest.TestCase):
 
         self.assertEqual(filtered[0]["action"], "watch")
         self.assertEqual(filtered[1]["action"], "buy")
+
+    def test_shortlist_ai_proposals_demotes_buy_without_confirmation(self):
+        proposals = [
+            {"ticker": "6501", "action": "BUY", "confidence": 0.82, "logic": "AI sees momentum"}
+        ]
+        watchlist = {"tickers": [{"ticker": "6501", "action": "WATCH"}]}
+        market_data = {"6501": {"change_rate": 0.2}}
+        news_data = []
+        rules = {
+            "buy_requires_price_confirmation": True,
+            "min_price_confirmation_change_pct": 0.5,
+            "ai_proposal_min_confidence": 0.55,
+        }
+
+        shortlisted = shortlist_ai_proposals(
+            proposals,
+            watchlist,
+            market_data,
+            news_data,
+            [],
+            rules,
+        )
+
+        self.assertEqual(shortlisted[0]["action"], "WATCH")
 
 
 if __name__ == "__main__":

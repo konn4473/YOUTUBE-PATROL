@@ -45,6 +45,8 @@ class TestWatchlistBuilder(unittest.TestCase):
         self.assertIn("日本株", [item["name"] for item in watchlist["themes"]])
         self.assertTrue(any(item["ticker"] == "6501" for item in watchlist["tickers"]))
         self.assertTrue(any(item["group_count"] >= 2 for item in watchlist["tickers"]))
+        self.assertEqual(watchlist["source_summary"]["search_items"], 2)
+        self.assertEqual(watchlist["source_summary"]["fixed_channel_items"], 0)
 
 
 if __name__ == "__main__":

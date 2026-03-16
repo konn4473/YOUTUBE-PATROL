@@ -76,6 +76,18 @@ def main():
         "portfolio": broker.portfolio,
     }
 
+    ai_proposals = analyzer.propose_trade_candidates(context)
+    shortlisted_candidates = shortlist_ai_proposals(
+        ai_proposals,
+        latest_watchlist,
+        market_data,
+        news_data,
+        confirmed_watch_tickers,
+        watchlist_rules,
+    )
+    context["ai_proposals"] = ai_proposals
+    context["shortlisted_candidates"] = shortlisted_candidates
+
     decisions = analyzer.consult_council(context)
     decisions = filter_decisions_by_watchlist(
         decisions, latest_watchlist, confirmed_watch_tickers, watchlist_rules
@@ -114,6 +126,8 @@ def main():
             "youtube": youtube_sentiment,
             "watchlist": latest_watchlist,
             "confirmed_watch_tickers": confirmed_watch_tickers,
+            "ai_proposals": ai_proposals,
+            "shortlisted_candidates": shortlisted_candidates,
             "decisions": decisions,
             "portfolio": broker.portfolio,
         }
@@ -165,6 +179,90 @@ def filter_decisions_by_watchlist(decisions, watchlist, confirmed_watch_tickers,
             item["logic"] = f"{item.get('logic', '')} price confirmation missing".strip()
         filtered.append(item)
     return filtered
+
+
+def shortlist_ai_proposals(
+    ai_proposals,
+    watchlist,
+    market_data,
+    news_data,
+    confirmed_watch_tickers,
+    watchlist_rules,
+):
+    if not ai_proposals:
+        return []
+
+    confirmed = set(confirmed_watch_tickers)
+    watchlist_rows = {item.get("ticker"): item for item in watchlist.get("tickers", [])[:10]}
+    min_confidence = float(watchlist_rules.get("ai_proposal_min_confidence", 0.55))
+
+    shortlisted = []
+    for item in ai_proposals[:5]:
+        ticker = item.get("ticker")
+        action = str(item.get("action", "")).upper()
+        confidence = _safe_float(item.get("confidence"))
+        if not ticker or confidence < min_confidence:
+            continue
+
+        has_news = _has_related_news(ticker, news_data)
+        market_item = market_data.get(ticker, {})
+        change_rate = _safe_float(market_item.get("change_rate"))
+
+        if action == "BUY":
+            if ticker in watchlist_rows and ticker not in confirmed:
+                item = dict(item)
+                item["action"] = "WATCH"
+                item["logic"] = f"{item.get('logic', '')} waiting for price confirmation".strip()
+            elif not has_news and change_rate <= 0:
+                item = dict(item)
+                item["action"] = "WATCH"
+                item["logic"] = f"{item.get('logic', '')} waiting for news or price support".strip()
+
+        shortlisted.append(
+            {
+                "ticker": ticker,
+                "action": item.get("action"),
+                "confidence": round(confidence, 2),
+                "logic": item.get("logic"),
+                "has_news_support": has_news,
+                "change_rate": change_rate,
+            }
+        )
+    return shortlisted
+
+
+def _has_related_news(ticker, news_data):
+    if not news_data:
+        return False
+    ticker_hints = {
+        "6501": ["hitachi", "日立"],
+        "7203": ["toyota", "トヨタ"],
+        "8035": ["tokyo electron", "東京エレクトロン", "半導体"],
+        "1605": ["inpex", "原油", "石油"],
+        "1662": ["原油", "oil", "wti"],
+        "7011": ["三菱重工", "defense", "防衛"],
+        "7012": ["川崎重工", "防衛"],
+        "7013": ["ihi", "防衛"],
+        "6857": ["advantest", "アドバンテスト", "半導体"],
+        "6920": ["レーザーテック", "半導体"],
+    }
+    hints = ticker_hints.get(ticker, [ticker.lower()])
+    for item in news_data[:10]:
+        haystack = " ".join(
+            str(part).lower()
+            for part in [item.get("title", ""), item.get("source", "")]
+            if part
+        )
+        if any(hint.lower() in haystack for hint in hints):
+            return True
+    return False
+
+
+def _safe_float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 if __name__ == "__main__":
