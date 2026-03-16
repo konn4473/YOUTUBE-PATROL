@@ -383,33 +383,39 @@ class PatrolStore:
         snapshot = result["snapshot"]
         action = self._main_action(snapshot, diff)
         lines = [
-            f"Patrol update {snapshot.get('timestamp')}",
-            f"Summary: news={diff['new_news_count']} youtube={diff['new_youtube_count']} decisions={diff['decision_count']}",
-            f"Action: {action}",
+            f"巡回アップデート {snapshot.get('timestamp')}",
+            (
+                "概要: "
+                f"ニュース新着={diff['new_news_count']}件 "
+                f"YouTube新着={diff['new_youtube_count']}件 "
+                f"判断={diff['decision_count']}件"
+            ),
+            f"行動: {self._action_label(action)}",
         ]
 
         confirmed = snapshot.get("confirmed_watch_tickers", [])
         if confirmed:
-            lines.append(f"Confirmed watch tickers: {', '.join(confirmed[:5])}")
+            lines.append(f"価格確認済み監視銘柄: {', '.join(confirmed[:5])}")
 
         for item in snapshot.get("ai_proposals", [])[:3]:
             lines.append(
-                "AI proposal: "
-                f"{item.get('ticker')} {item.get('action')} confidence={item.get('confidence')}"
+                "AI提案: "
+                f"{item.get('ticker')} {self._action_label(item.get('action'))} "
+                f"信頼度={item.get('confidence')}"
             )
 
         for item in diff["new_news"][:3]:
-            lines.append(f"News: [{item.get('source')}] {item.get('title')}")
+            lines.append(f"ニュース: [{item.get('source')}] {item.get('title')}")
 
         for item in snapshot.get("decisions", [])[:3]:
             lines.append(
-                "Decision: "
-                f"{item.get('ticker')} {item.get('action')} "
-                f"confidence={item.get('confidence')}"
+                "判断: "
+                f"{item.get('ticker')} {self._action_label(item.get('action'))} "
+                f"信頼度={item.get('confidence')}"
             )
 
         lines.append(
-            "Trading note: Confirm with price action and risk limits before any order."
+            "補足: 注文前に値動きとリスク上限を必ず確認してください。"
         )
         return "\n".join(lines)
 
@@ -424,45 +430,57 @@ class PatrolStore:
         if not themes:
             themes = self._infer_youtube_themes(top_item)
         lines = [
-            f"YouTube patrol update {snapshot.get('timestamp')}",
-            f"Summary: new_youtube={diff['new_youtube_count']}",
-            f"Action: {action}",
+            f"YouTube巡回アップデート {snapshot.get('timestamp')}",
+            f"概要: YouTube新着={diff['new_youtube_count']}件",
+            f"行動: {self._action_label(action)}",
         ]
         lines.append(
-            "Sources: "
-            f"fixed={source_summary.get('fixed_channel_items', 0)} "
-            f"search={source_summary.get('search_items', 0)}"
+            "取得元: "
+            f"固定チャンネル={source_summary.get('fixed_channel_items', 0)}件 "
+            f"検索={source_summary.get('search_items', 0)}件"
         )
         top_fixed_channels = source_summary.get("top_fixed_channels") or []
         if top_fixed_channels:
             lines.append(
-                "Top fixed channels: "
+                "上位固定チャンネル: "
                 + ", ".join(
                     f"{item.get('name')}({item.get('count')})"
                     for item in top_fixed_channels[:3]
                 )
             )
         if themes:
-            lines.append(f"Themes: {', '.join(themes)}")
+            lines.append(f"テーマ: {', '.join(themes)}")
         top_tickers = watchlist.get("tickers", [])[:3]
         if top_tickers:
             lines.append(
-                "Candidates: "
+                "候補銘柄: "
                 + ", ".join(
-                    f"{item.get('ticker')}({item.get('action')})" for item in top_tickers
+                    f"{item.get('ticker')}({self._action_label(item.get('action'))})"
+                    for item in top_tickers
                 )
             )
         for item in diff["new_youtube"][:3]:
             sentiment = item.get("sentiment") or {}
             lines.append(
-                "Video: "
+                "動画: "
                 f"[{item.get('channel')}] {item.get('title')} "
                 f"score={sentiment.get('score')}"
             )
         lines.append(
-            "Trading note: YouTube alone is not a buy signal. Confirm with price and news."
+            "補足: YouTube 単独では買いシグナルにしません。価格とニュースで確認してください。"
         )
         return "\n".join(lines)
+
+    def _action_label(self, action):
+        mapping = {
+            "BUY": "買い",
+            "SELL": "売り",
+            "WATCH": "監視",
+            "AVOID": "見送り",
+            "NO SIGNAL": "シグナルなし",
+        }
+        key = str(action or "").upper()
+        return mapping.get(key, str(action))
 
     def _youtube_action(self, item):
         if not item:

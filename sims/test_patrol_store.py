@@ -70,10 +70,10 @@ class TestPatrolStore(unittest.TestCase):
         )
         text = self.store._build_youtube_notification_text(result)
 
-        self.assertIn("Action: AVOID", text)
-        self.assertIn("Themes: 日本株, 原油", text)
-        self.assertIn("Candidates: 1605(AVOID)", text)
-        self.assertIn("Trading note: YouTube alone is not a buy signal.", text)
+        self.assertIn("行動: 見送り", text)
+        self.assertIn("テーマ: 日本株, 原油", text)
+        self.assertIn("候補銘柄: 1605(見送り)", text)
+        self.assertIn("補足: YouTube 単独では買いシグナルにしません。", text)
 
     def test_main_notification_text_includes_action(self):
         result = self.store.save_run(
@@ -87,9 +87,9 @@ class TestPatrolStore(unittest.TestCase):
         )
         text = self.store._build_notification_text(result)
 
-        self.assertIn("Action: BUY", text)
-        self.assertIn("Decision: 6501 buy confidence=72", text)
-        self.assertIn("Trading note: Confirm with price action and risk limits before any order.", text)
+        self.assertIn("行動: 買い", text)
+        self.assertIn("判断: 6501 買い 信頼度=72", text)
+        self.assertIn("補足: 注文前に値動きとリスク上限を必ず確認してください。", text)
 
 
 if __name__ == "__main__":
