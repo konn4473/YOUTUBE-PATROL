@@ -263,10 +263,16 @@ class PatrolStore:
     def _build_youtube_notification_text(self, result):
         diff = result["diff"]
         snapshot = result["snapshot"]
+        top_item = diff["new_youtube"][0] if diff["new_youtube"] else None
+        action = self._youtube_action(top_item)
+        themes = self._infer_youtube_themes(top_item)
         lines = [
             f"YouTube patrol update {snapshot.get('timestamp')}",
             f"Summary: new_youtube={diff['new_youtube_count']}",
+            f"Action: {action}",
         ]
+        if themes:
+            lines.append(f"Themes: {', '.join(themes)}")
         for item in diff["new_youtube"][:3]:
             sentiment = item.get("sentiment") or {}
             lines.append(
@@ -274,7 +280,49 @@ class PatrolStore:
                 f"[{item.get('channel')}] {item.get('title')} "
                 f"score={sentiment.get('score')}"
             )
+        lines.append("Trading note: YouTube alone is not a buy signal. Confirm with price and news.")
         return "\n".join(lines)
+
+    def _youtube_action(self, item):
+        if not item:
+            return "NO SIGNAL"
+        sentiment = item.get("sentiment") or {}
+        score = sentiment.get("score")
+        try:
+            score = float(score)
+        except (TypeError, ValueError):
+            return "NO SIGNAL"
+        if score <= -0.4:
+            return "AVOID"
+        if score >= 0.6:
+            return "WATCH"
+        return "NO SIGNAL"
+
+    def _infer_youtube_themes(self, item):
+        if not item:
+            return []
+        text = " ".join(
+            str(part)
+            for part in [
+                item.get("title", ""),
+                item.get("source", ""),
+                (item.get("sentiment") or {}).get("reason", ""),
+            ]
+            if part
+        ).lower()
+        keyword_map = [
+            ("日本株", ["日本株", "日経", "nikkei", "japan equities"]),
+            ("半導体", ["半導体", "semiconductor"]),
+            ("原油", ["原油", "wti", "oil", "crude"]),
+            ("円安", ["円安", "ドル円", "usd/jpy", "yen"]),
+            ("米国株", ["米国株", "nasdaq", "s&p", "dow"]),
+            ("仮想通貨", ["仮想通貨", "bitcoin", "btc", "crypto"]),
+        ]
+        themes = []
+        for theme, keywords in keyword_map:
+            if any(keyword in text for keyword in keywords):
+                themes.append(theme)
+        return themes[:4]
 
     def _load_json(self, path):
         if not os.path.exists(path):

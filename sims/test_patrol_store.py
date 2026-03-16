@@ -48,6 +48,25 @@ class TestPatrolStore(unittest.TestCase):
         self.assertEqual(second["diff"]["new_youtube_count"], 1)
         self.assertEqual(second["diff"]["decision_count"], 1)
 
+    def test_youtube_notification_text_includes_action(self):
+        result = self.store.save_youtube_run(
+            [
+                {
+                    "video_id": "vid1",
+                    "title": "日本株と原油の急変",
+                    "channel": "Test Channel",
+                    "source": "search:日本株",
+                    "published": "2026-01-02",
+                    "sentiment": {"score": -0.9, "reason": "WTI crude surge hurts Japan equities."},
+                }
+            ]
+        )
+        text = self.store._build_youtube_notification_text(result)
+
+        self.assertIn("Action: AVOID", text)
+        self.assertIn("Themes: 日本株, 原油", text)
+        self.assertIn("Trading note: YouTube alone is not a buy signal.", text)
+
 
 if __name__ == "__main__":
     unittest.main()
