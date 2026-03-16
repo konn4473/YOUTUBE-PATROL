@@ -65,7 +65,7 @@ class AIAnalyzer:
             return []
         prompt = (
             "You are an investment council. Review the following market, news, YouTube, "
-            "and portfolio context. Return a JSON array of trade decisions. "
+            "watchlist, and portfolio context. Return a JSON array of trade decisions. "
             "Return at most 3 items. Prefer wait if evidence is weak. "
             "Each item must contain ticker, action, confidence, logic, sl_rate, and tp_rate.\n\n"
             f"Context:\n{json.dumps(compact_context, ensure_ascii=False, indent=2)}"
@@ -208,8 +208,18 @@ class AIAnalyzer:
             "market": data_context.get("market", {}),
             "news": news_items,
             "youtube": youtube_items,
+            "watchlist": self._compact_watchlist(data_context.get("watchlist", {})),
             "portfolio": {
                 "cash": portfolio.get("cash"),
                 "holdings": compact_holdings,
             },
+        }
+
+    def _compact_watchlist(self, watchlist):
+        if not watchlist:
+            return {}
+        return {
+            "overall_action": watchlist.get("overall_action"),
+            "themes": watchlist.get("themes", [])[:3],
+            "tickers": watchlist.get("tickers", [])[:5],
         }

@@ -49,6 +49,12 @@ class TestPatrolStore(unittest.TestCase):
         self.assertEqual(second["diff"]["decision_count"], 1)
 
     def test_youtube_notification_text_includes_action(self):
+        watchlist = {
+            "timestamp": "2026-01-02 07:30:00",
+            "overall_action": "AVOID",
+            "themes": [{"name": "日本株"}, {"name": "原油"}],
+            "tickers": [{"ticker": "1605", "action": "AVOID"}],
+        }
         result = self.store.save_youtube_run(
             [
                 {
@@ -59,12 +65,14 @@ class TestPatrolStore(unittest.TestCase):
                     "published": "2026-01-02",
                     "sentiment": {"score": -0.9, "reason": "WTI crude surge hurts Japan equities."},
                 }
-            ]
+            ],
+            watchlist=watchlist,
         )
         text = self.store._build_youtube_notification_text(result)
 
         self.assertIn("Action: AVOID", text)
         self.assertIn("Themes: 日本株, 原油", text)
+        self.assertIn("Candidates: 1605(AVOID)", text)
         self.assertIn("Trading note: YouTube alone is not a buy signal.", text)
 
     def test_main_notification_text_includes_action(self):

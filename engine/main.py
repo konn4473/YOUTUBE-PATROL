@@ -31,11 +31,18 @@ def main():
 
     config = load_config()
     tickers = config.get("target_tickers", ["6501", "7203"])
+    patrol_store = PatrolStore(data_dir="data")
+    latest_watchlist = patrol_store.load_latest_watchlist() or {}
+    watch_tickers = [
+        item.get("ticker")
+        for item in latest_watchlist.get("tickers", [])[:3]
+        if item.get("ticker") and item.get("action") == "WATCH"
+    ]
+    tickers = list(dict.fromkeys(tickers + watch_tickers))
 
     collector = DataCollector(tickers=tickers)
     analyzer = AIAnalyzer()
     broker = MockBroker(data_dir="data")
-    patrol_store = PatrolStore(data_dir="data")
 
     print(f"Tickers: {', '.join(tickers)}")
     print("Fetching market/news...")
@@ -60,6 +67,7 @@ def main():
         "market": market_data,
         "news": news_data,
         "youtube": youtube_sentiment,
+        "watchlist": latest_watchlist,
         "portfolio": broker.portfolio,
     }
 
@@ -96,6 +104,7 @@ def main():
             "market": market_data,
             "news": news_data,
             "youtube": youtube_sentiment,
+            "watchlist": latest_watchlist,
             "decisions": decisions,
             "portfolio": broker.portfolio,
         }

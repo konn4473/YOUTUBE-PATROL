@@ -5,12 +5,13 @@ from youtube_transcript_api import YouTubeTranscriptApi
 
 
 class YouTubeAnalyzer:
-    def __init__(self, targets, max_videos=3, languages=None):
+    def __init__(self, targets, max_videos=3, languages=None, theme_ticker_map=None):
         self.channels = targets.get("channels", [])
         self.search_keywords = targets.get("search_keywords", [])
         self.max_videos = max_videos
         self.max_items = targets.get("max_items", 3)
         self.languages = languages or ["ja", "en"]
+        self.theme_ticker_map = theme_ticker_map or {}
         self.request_timeout = targets.get("request_timeout_seconds", 15)
         self.ydl = yt_dlp.YoutubeDL(
             {
@@ -59,6 +60,8 @@ class YouTubeAnalyzer:
                 sentiment = ai_analyzer.analyze_sentiment(text)
             else:
                 sentiment = {"score": 0.0, "reason": "no text"}
+            themes = self._infer_themes(v, transcript, sentiment)
+            candidate_tickers = self._map_tickers(themes)
             analyzed.append(
                 {
                     "video_id": v["video_id"],
@@ -67,6 +70,9 @@ class YouTubeAnalyzer:
                     "published": v.get("published"),
                     "source": v.get("source"),
                     "sentiment": sentiment,
+                    "themes": themes,
+                    "candidate_tickers": candidate_tickers,
+                    "confidence": self._confidence(sentiment, themes, candidate_tickers),
                 }
             )
         return analyzed
@@ -147,3 +153,52 @@ class YouTubeAnalyzer:
             return None
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
+
+    def _infer_themes(self, video, transcript, sentiment):
+        text = " ".join(
+            str(part)
+            for part in [
+                video.get("title", ""),
+                video.get("description", ""),
+                video.get("source", ""),
+                transcript or "",
+                (sentiment or {}).get("reason", ""),
+            ]
+            if part
+        ).lower()
+        keyword_map = [
+            ("日本株", ["日本株", "日経", "nikkei", "japan equities"]),
+            ("半導体", ["半導体", "semiconductor", "半導体株"]),
+            ("防衛", ["防衛", "defense", "防衛関連"]),
+            ("商社", ["商社", "trading house"]),
+            ("銀行", ["銀行", "bank", "メガバンク"]),
+            ("原油", ["原油", "wti", "oil", "crude"]),
+            ("円安", ["円安", "ドル円", "usd/jpy", "yen"]),
+            ("米国株", ["米国株", "nasdaq", "s&p", "dow"]),
+            ("仮想通貨", ["仮想通貨", "bitcoin", "btc", "crypto"]),
+            ("AI", ["ai", "人工知能"]),
+        ]
+        themes = []
+        for theme, keywords in keyword_map:
+            if any(keyword in text for keyword in keywords):
+                themes.append(theme)
+        return themes[:5]
+
+    def _map_tickers(self, themes):
+        tickers = []
+        seen = set()
+        for theme in themes:
+            for ticker in self.theme_ticker_map.get(theme, []):
+                if ticker in seen:
+                    continue
+                tickers.append(ticker)
+                seen.add(ticker)
+        return tickers[:6]
+
+    def _confidence(self, sentiment, themes, candidate_tickers):
+        try:
+            score = abs(float((sentiment or {}).get("score", 0.0)))
+        except (TypeError, ValueError):
+            score = 0.0
+        confidence = min(1.0, score + (0.1 * len(themes)) + (0.05 * len(candidate_tickers)))
+        return round(confidence, 2)
