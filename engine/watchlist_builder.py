@@ -9,7 +9,7 @@ class WatchlistBuilder:
         self.top_ticker_limit = int(self.rules.get("top_ticker_limit", 10))
         self.top_theme_limit = int(self.rules.get("top_theme_limit", 8))
         self.min_distinct_channels = int(self.rules.get("min_distinct_channels", 2))
-        self.min_distinct_groups = int(self.rules.get("min_distinct_groups", 1))
+        self.min_distinct_groups = int(self.rules.get("min_distinct_groups", 2))
         self.bullish_watch_threshold = float(
             self.rules.get("bullish_watch_threshold", 0.35)
         )
@@ -54,23 +54,25 @@ class WatchlistBuilder:
             themes = item.get("themes") or []
             tickers = item.get("candidate_tickers") or []
             channel = item.get("channel")
-            group = item.get("channel_group") or "search"
-            source = item.get("source") or ""
+            groups = item.get("group_list") or [item.get("channel_group") or "search"]
+            sources = item.get("source_list") or [item.get("source") or ""]
 
-            if str(source).startswith("search:"):
-                source_stats["search_items"] += 1
-                keyword = str(source).split("search:", 1)[1] or "unknown"
-                source_stats["search_keywords"][keyword] += 1
-            elif channel:
-                source_stats["fixed_channel_items"] += 1
-                source_stats["fixed_channels"][channel] += 1
+            for source in {str(value) for value in sources if value}:
+                if source.startswith("search:"):
+                    source_stats["search_items"] += 1
+                    keyword = source.split("search:", 1)[1] or "unknown"
+                    source_stats["search_keywords"][keyword] += 1
+                else:
+                    source_stats["fixed_channel_items"] += 1
+                    channel_name = source.split("channel:", 1)[1] or channel or "unknown"
+                    source_stats["fixed_channels"][channel_name] += 1
 
             for theme in themes:
                 stats = theme_stats[theme]
                 stats["score_total"] += score
                 stats["weighted_score_total"] += score * weight
                 stats["video_count"] += 1
-                stats["groups"].add(group)
+                stats["groups"].update(groups)
                 if score >= 0.25:
                     stats["bullish_mentions"] += 1
                 elif score <= -0.25:
@@ -87,12 +89,14 @@ class WatchlistBuilder:
                     stats["bearish_mentions"] += 1
                 if channel:
                     stats["channels"].add(channel)
-                stats["groups"].add(group)
+                stats["groups"].update(groups)
                 for theme in themes:
                     stats["reasons"].add(f"theme:{theme}")
-                if source:
-                    stats["reasons"].add(source)
-                stats["reasons"].add(f"group:{group}")
+                for source in sources:
+                    if source:
+                        stats["reasons"].add(source)
+                for group in groups:
+                    stats["reasons"].add(f"group:{group}")
 
         top_themes = self._build_theme_rows(theme_stats)
         top_tickers = self._build_ticker_rows(ticker_stats)

@@ -23,7 +23,7 @@
     "top_ticker_limit": 10,
     "top_theme_limit": 8,
     "min_distinct_channels": 2,
-    "min_distinct_groups": 1,
+    "min_distinct_groups": 2,
     "bullish_watch_threshold": 0.35,
     "bearish_avoid_threshold": -0.35,
     "ai_proposal_min_confidence": 0.55,
