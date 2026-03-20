@@ -64,7 +64,10 @@ class PatrolStore:
                     "title": item.get("title"),
                     "channel": item.get("channel"),
                     "source": item.get("source"),
+                    "source_list": item.get("source_list", []),
                     "published": item.get("published"),
+                    "channel_group": item.get("channel_group"),
+                    "group_list": item.get("group_list", []),
                     "sentiment": item.get("sentiment"),
                     "themes": item.get("themes", []),
                     "candidate_tickers": item.get("candidate_tickers", []),
@@ -80,7 +83,8 @@ class PatrolStore:
             "overall_action": "NO SIGNAL",
         }
         previous = self.load_latest_youtube_snapshot()
-        diff = self._build_youtube_diff(previous, payload)
+        previous_watchlist = self.load_latest_watchlist()
+        diff = self._build_youtube_diff(previous, payload, previous_watchlist, watchlist)
         report = self._build_youtube_report(payload, diff, watchlist)
         watchlist_report = self._build_watchlist_report(watchlist)
         history_path = self._history_path(self.youtube_history_dir, payload["timestamp"])
@@ -127,7 +131,9 @@ class PatrolStore:
             diff["new_news_count"] > 0
             or diff["new_youtube_count"] > 0
             or diff["decision_count"] > 0
-            or len(result["snapshot"].get("ai_proposals", [])) > 0
+            or diff.get("confirmed_watch_changed")
+            or diff.get("top_ai_proposals_changed")
+            or diff.get("top_shortlisted_changed")
         )
         if not interesting:
             return False
@@ -139,7 +145,11 @@ class PatrolStore:
         if not self._is_valid_webhook_url(webhook_url):
             return False
         diff = result["diff"]
-        if diff["new_youtube_count"] <= 0:
+        if (
+            diff["new_youtube_count"] <= 0
+            and not diff.get("watchlist_action_changed")
+            and not diff.get("top_tickers_changed")
+        ):
             return False
         content = self._build_youtube_notification_text(result)
         requests.post(webhook_url, json={"content": content}, timeout=10)
@@ -165,7 +175,10 @@ class PatrolStore:
                     "title": item.get("title"),
                     "channel": item.get("channel"),
                     "source": item.get("source"),
+                    "source_list": item.get("source_list", []),
                     "published": item.get("published"),
+                    "channel_group": item.get("channel_group"),
+                    "group_list": item.get("group_list", []),
                     "sentiment": item.get("sentiment"),
                 }
                 for item in payload.get("youtube", [])
@@ -183,9 +196,23 @@ class PatrolStore:
     def _build_diff(self, previous, current):
         previous_news_ids = set()
         previous_youtube_ids = set()
+        previous_confirmed = []
+        previous_ai = []
+        previous_shortlisted = []
         if previous:
             previous_news_ids = {item["id"] for item in previous.get("news", [])}
             previous_youtube_ids = {item["id"] for item in previous.get("youtube", [])}
+            previous_confirmed = previous.get("confirmed_watch_tickers", [])[:5]
+            previous_ai = [
+                item.get("ticker")
+                for item in previous.get("ai_proposals", [])[:3]
+                if item.get("ticker")
+            ]
+            previous_shortlisted = [
+                f"{item.get('ticker')}:{item.get('action')}"
+                for item in previous.get("shortlisted_candidates", [])[:3]
+                if item.get("ticker") and item.get("action")
+            ]
 
         new_news = [
             item
@@ -197,6 +224,17 @@ class PatrolStore:
             for item in current.get("youtube", [])
             if item["id"] not in previous_youtube_ids
         ]
+        current_confirmed = current.get("confirmed_watch_tickers", [])[:5]
+        current_ai = [
+            item.get("ticker")
+            for item in current.get("ai_proposals", [])[:3]
+            if item.get("ticker")
+        ]
+        current_shortlisted = [
+            f"{item.get('ticker')}:{item.get('action')}"
+            for item in current.get("shortlisted_candidates", [])[:3]
+            if item.get("ticker") and item.get("action")
+        ]
 
         return {
             "new_news_count": len(new_news),
@@ -204,18 +242,45 @@ class PatrolStore:
             "decision_count": len(current.get("decisions", [])),
             "new_news": new_news[:5],
             "new_youtube": new_youtube[:5],
+            "confirmed_watch_changed": previous_confirmed != current_confirmed,
+            "previous_confirmed_watch_tickers": previous_confirmed,
+            "current_confirmed_watch_tickers": current_confirmed,
+            "top_ai_proposals_changed": previous_ai != current_ai,
+            "previous_top_ai_proposals": previous_ai,
+            "current_top_ai_proposals": current_ai,
+            "top_shortlisted_changed": previous_shortlisted != current_shortlisted,
+            "previous_top_shortlisted": previous_shortlisted,
+            "current_top_shortlisted": current_shortlisted,
         }
 
-    def _build_youtube_diff(self, previous, current):
+    def _build_youtube_diff(self, previous, current, previous_watchlist=None, current_watchlist=None):
         previous_ids = set()
         if previous:
             previous_ids = {item["id"] for item in previous.get("youtube", [])}
         new_youtube = [
             item for item in current.get("youtube", []) if item["id"] not in previous_ids
         ]
+        previous_action = (previous_watchlist or {}).get("overall_action", "NO SIGNAL")
+        current_action = (current_watchlist or {}).get("overall_action", "NO SIGNAL")
+        previous_tickers = [
+            item.get("ticker")
+            for item in (previous_watchlist or {}).get("tickers", [])[:3]
+            if item.get("ticker")
+        ]
+        current_tickers = [
+            item.get("ticker")
+            for item in (current_watchlist or {}).get("tickers", [])[:3]
+            if item.get("ticker")
+        ]
         return {
             "new_youtube_count": len(new_youtube),
             "new_youtube": new_youtube[:5],
+            "watchlist_action_changed": previous_action != current_action,
+            "previous_watchlist_action": previous_action,
+            "current_watchlist_action": current_action,
+            "top_tickers_changed": previous_tickers != current_tickers,
+            "previous_top_tickers": previous_tickers,
+            "current_top_tickers": current_tickers,
         }
 
     def _build_report(self, snapshot, diff):
@@ -281,13 +346,20 @@ class PatrolStore:
             lines.append(f"- Realized PnL: {paper_summary.get('realized_pnl', 0)}")
             lines.append(f"- Unrealized PnL: {paper_summary.get('unrealized_pnl', 0)}")
             lines.append(f"- Total PnL: {paper_summary.get('total_pnl', 0)}")
+            lines.append(
+                f"- Average holding days: {paper_summary.get('average_holding_days', 0)}"
+            )
+            recent_actions = paper_summary.get("recent_signal_actions", [])
+            if recent_actions:
+                lines.append(f"- Recent signal actions: {', '.join(recent_actions[:5])}")
             positions = paper_summary.get("positions", [])
             if positions:
                 lines.append("- Open position preview:")
                 for item in positions[:3]:
                     lines.append(
                         f"  - {item.get('ticker')}: entry={item.get('entry_price')} "
-                        f"current={item.get('current_price')} pnl={item.get('unrealized_pnl')}"
+                        f"current={item.get('current_price')} pnl={item.get('unrealized_pnl')} "
+                        f"holding_days={item.get('holding_days')}"
                     )
         else:
             lines.append("- None")
@@ -311,6 +383,8 @@ class PatrolStore:
             f"- YouTube items: {len(snapshot.get('youtube', []))}",
             f"- New YouTube items since last run: {diff['new_youtube_count']}",
             f"- Watchlist action: {watchlist.get('overall_action', 'NO SIGNAL')}",
+            f"- Watchlist action changed: {diff.get('watchlist_action_changed', False)}",
+            f"- Top tickers changed: {diff.get('top_tickers_changed', False)}",
             "",
             "## Latest YouTube Items",
         ]
@@ -382,8 +456,18 @@ class PatrolStore:
         themes = watchlist.get("themes", [])
         if themes:
             for item in themes[:5]:
+                top_fixed = item.get("top_fixed_channels") or []
+                top_fixed_text = (
+                    ", ".join(
+                        f"{entry.get('name')}({entry.get('count')})" for entry in top_fixed[:2]
+                    )
+                    if top_fixed
+                    else "none"
+                )
                 lines.append(
-                    f"- {item.get('name')} action={item.get('action')} score={item.get('score')} videos={item.get('video_count')}"
+                    f"- {item.get('name')} action={item.get('action')} score={item.get('score')} "
+                    f"videos={item.get('video_count')} fixed={item.get('fixed_source_count', 0)} "
+                    f"search={item.get('search_source_count', 0)} fixed_channels={top_fixed_text}"
                 )
         else:
             lines.append("- None")
@@ -392,9 +476,19 @@ class PatrolStore:
         tickers = watchlist.get("tickers", [])
         if tickers:
             for item in tickers[:5]:
+                top_fixed = item.get("top_fixed_channels") or []
+                top_fixed_text = (
+                    ", ".join(
+                        f"{entry.get('name')}({entry.get('count')})" for entry in top_fixed[:2]
+                    )
+                    if top_fixed
+                    else "none"
+                )
                 lines.append(
                     f"- {item.get('ticker')} action={item.get('action')} score={item.get('score')} "
-                    f"avg_sentiment={item.get('avg_sentiment')} reasons={','.join(item.get('reasons', []))}"
+                    f"avg_sentiment={item.get('avg_sentiment')} fixed={item.get('fixed_source_count', 0)} "
+                    f"search={item.get('search_source_count', 0)} fixed_channels={top_fixed_text} "
+                    f"reasons={','.join(item.get('reasons', []))}"
                 )
         else:
             lines.append("- None")
@@ -419,6 +513,10 @@ class PatrolStore:
         confirmed = snapshot.get("confirmed_watch_tickers", [])
         if confirmed:
             lines.append(f"価格確認済み監視銘柄: {', '.join(confirmed[:5])}")
+        if diff.get("confirmed_watch_changed"):
+            before = ", ".join(diff.get("previous_confirmed_watch_tickers", [])) or "なし"
+            after = ", ".join(diff.get("current_confirmed_watch_tickers", [])) or "なし"
+            lines.append(f"確認済み監視変化: {before} → {after}")
 
         paper_summary = snapshot.get("paper_trade_summary") or {}
         if paper_summary:
@@ -428,6 +526,34 @@ class PatrolStore:
                 f"保有={paper_summary.get('open_positions', 0)} "
                 f"合計損益={paper_summary.get('total_pnl', 0)}"
             )
+            lines.append(
+                "紙上売買詳細: "
+                f"平均保有日数={paper_summary.get('average_holding_days', 0)} "
+                f"最近アクション={', '.join((paper_summary.get('recent_signal_actions') or [])[:3]) or 'なし'}"
+            )
+            lines.append(
+                "紙上売買連続記録: "
+                f"連勝={paper_summary.get('best_win_streak', 0)} "
+                f"連敗={paper_summary.get('best_loss_streak', 0)}"
+            )
+            ticker_pnl = paper_summary.get("ticker_pnl") or []
+            if ticker_pnl:
+                lines.append(
+                    "銘柄別損益: "
+                    + ", ".join(
+                        f"{item.get('ticker')}={item.get('realized_pnl')}"
+                        for item in ticker_pnl[:3]
+                    )
+                )
+
+        if diff.get("top_ai_proposals_changed"):
+            before = ", ".join(diff.get("previous_top_ai_proposals", [])) or "なし"
+            after = ", ".join(diff.get("current_top_ai_proposals", [])) or "なし"
+            lines.append(f"AI提案変化: {before} → {after}")
+        if diff.get("top_shortlisted_changed"):
+            before = ", ".join(diff.get("previous_top_shortlisted", [])) or "なし"
+            after = ", ".join(diff.get("current_top_shortlisted", [])) or "なし"
+            lines.append(f"候補絞り込み変化: {before} → {after}")
 
         for item in snapshot.get("ai_proposals", [])[:3]:
             lines.append(
@@ -466,6 +592,16 @@ class PatrolStore:
             f"概要: YouTube新着={diff['new_youtube_count']}件",
             f"行動: {self._action_label(action)}",
         ]
+        if diff.get("watchlist_action_changed"):
+            lines.append(
+                "watchlist変化: "
+                f"{self._action_label(diff.get('previous_watchlist_action'))} → "
+                f"{self._action_label(diff.get('current_watchlist_action'))}"
+            )
+        if diff.get("top_tickers_changed"):
+            before = ", ".join(diff.get("previous_top_tickers", [])) or "なし"
+            after = ", ".join(diff.get("current_top_tickers", [])) or "なし"
+            lines.append(f"上位候補変化: {before} → {after}")
         lines.append(
             "取得元: "
             f"固定チャンネル={source_summary.get('fixed_channel_items', 0)}件 "
@@ -487,7 +623,9 @@ class PatrolStore:
             lines.append(
                 "候補銘柄: "
                 + ", ".join(
-                    f"{item.get('ticker')}({self._action_label(item.get('action'))})"
+                    f"{item.get('ticker')}({self._action_label(item.get('action'))}"
+                    f"/固定{item.get('fixed_source_count', 0)}"
+                    f"/検索{item.get('search_source_count', 0)})"
                     for item in top_tickers
                 )
             )
@@ -536,9 +674,19 @@ class PatrolStore:
             return "BUY"
         if "SELL" in actions:
             return "SELL"
+        if actions and actions.issubset({"AVOID", "NO SIGNAL", "WAIT"}):
+            return "AVOID"
         if decisions:
             return "WATCH"
+        proposal_actions = {
+            str(item.get("action", "")).upper()
+            for item in snapshot.get("ai_proposals", [])
+        }
+        if proposal_actions and proposal_actions.issubset({"AVOID", "NO SIGNAL"}):
+            return "AVOID"
         if snapshot.get("ai_proposals"):
+            return "WATCH"
+        if snapshot.get("confirmed_watch_tickers"):
             return "WATCH"
         if diff["new_news_count"] > 0 or diff["new_youtube_count"] > 0:
             return "WATCH"

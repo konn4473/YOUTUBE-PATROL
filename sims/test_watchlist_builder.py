@@ -51,6 +51,15 @@ class TestWatchlistBuilder(unittest.TestCase):
         self.assertTrue(any(item["group_count"] >= 2 for item in watchlist["tickers"]))
         self.assertEqual(watchlist["source_summary"]["search_items"], 2)
         self.assertEqual(watchlist["source_summary"]["fixed_channel_items"], 2)
+        top_theme = watchlist["themes"][0]
+        self.assertIn("fixed_source_count", top_theme)
+        self.assertIn("search_source_count", top_theme)
+        self.assertIn("top_fixed_channels", top_theme)
+        self.assertEqual(top_theme["top_fixed_channels"][0]["name"], "Ch1")
+        top_ticker = next(item for item in watchlist["tickers"] if item["ticker"] == "6501")
+        self.assertEqual(top_ticker["fixed_source_count"], 2)
+        self.assertEqual(top_ticker["search_source_count"], 2)
+        self.assertIn("top_fixed_channels", top_ticker)
 
 
 if __name__ == "__main__":

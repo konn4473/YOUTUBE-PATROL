@@ -66,6 +66,31 @@ class TestMainHelpers(unittest.TestCase):
 
         self.assertEqual(shortlisted[0]["action"], "WATCH")
 
+    def test_shortlist_ai_proposals_blocks_buy_when_watchlist_is_avoid(self):
+        proposals = [
+            {"ticker": "6501", "action": "BUY", "confidence": 0.82, "logic": "AI sees rebound"}
+        ]
+        watchlist = {"tickers": [{"ticker": "6501", "action": "AVOID"}]}
+
+        shortlisted = shortlist_ai_proposals(
+            proposals,
+            watchlist,
+            {"6501": {"change_rate": 1.1}},
+            [],
+            ["6501"],
+            {"ai_proposal_min_confidence": 0.55},
+        )
+
+        self.assertEqual(shortlisted[0]["action"], "AVOID")
+
+    def test_filter_decisions_blocks_buy_when_watchlist_is_avoid(self):
+        decisions = [{"ticker": "6501", "action": "buy", "logic": "AI council buy"}]
+        watchlist = {"tickers": [{"ticker": "6501", "action": "AVOID"}]}
+
+        filtered = filter_decisions_by_watchlist(decisions, watchlist, ["6501"], {})
+
+        self.assertEqual(filtered[0]["action"], "avoid")
+
 
 if __name__ == "__main__":
     unittest.main()

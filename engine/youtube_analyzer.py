@@ -64,17 +64,21 @@ class YouTubeAnalyzer:
         videos = self.collect_targets()
         if not videos:
             return []
+        shared_sentiment = getattr(ai_analyzer, "shared_sentiment_result", None)
+        sequential_mode = bool(getattr(ai_analyzer, "sequential_sentiment_mode", False))
 
         def analyze_one(video):
             transcript = (
                 self._fetch_transcript(video["video_id"])
-                if self._should_fetch_transcript(video)
+                if shared_sentiment is None and self._should_fetch_transcript(video)
                 else None
             )
             text = self._build_text(video, transcript)
             if len(text) > 6000:
                 text = text[:6000]
-            if text.strip():
+            if shared_sentiment is not None:
+                sentiment = dict(shared_sentiment)
+            elif text.strip():
                 sentiment = ai_analyzer.analyze_sentiment(text)
             else:
                 sentiment = {"score": 0.0, "reason": "no text"}
@@ -98,7 +102,8 @@ class YouTubeAnalyzer:
                 ),
             }
 
-        with ThreadPoolExecutor(max_workers=max(1, self.parallel_workers)) as executor:
+        max_workers = 1 if sequential_mode or shared_sentiment is not None else max(1, self.parallel_workers)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             return list(executor.map(analyze_one, videos))
 
     def _extract_channel_videos(self, channel_url):

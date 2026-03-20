@@ -136,6 +136,7 @@ class PaperTradeTracker:
     def build_summary(self, market_data):
         open_positions = []
         unrealized_total = 0.0
+        now_dt = datetime.now()
         for ticker, position in self.positions.items():
             current_price = self._safe_float(
                 market_data.get(ticker, {}).get("price", position.get("current_price"))
@@ -144,6 +145,7 @@ class PaperTradeTracker:
                 (current_price - position["entry_price"]) * position["quantity"], 1
             )
             unrealized_total += unrealized
+            opened_dt = self._parse_timestamp(position.get("opened_at"))
             open_positions.append(
                 {
                     "ticker": ticker,
@@ -152,6 +154,7 @@ class PaperTradeTracker:
                     "current_price": current_price,
                     "unrealized_pnl": unrealized,
                     "opened_at": position.get("opened_at"),
+                    "holding_days": self._holding_days(opened_dt, now_dt),
                 }
             )
 
@@ -160,6 +163,11 @@ class PaperTradeTracker:
             sum(self._safe_float(item.get("realized_pnl")) for item in closed_trades), 1
         )
         wins = sum(1 for item in closed_trades if self._safe_float(item.get("realized_pnl")) > 0)
+        holding_days = [
+            self._safe_float(item.get("holding_days"))
+            for item in closed_trades
+            if item.get("holding_days") is not None
+        ]
         summary = {
             "open_positions": len(open_positions),
             "closed_trades": len(closed_trades),
@@ -168,7 +176,14 @@ class PaperTradeTracker:
             "realized_pnl": realized_total,
             "unrealized_pnl": round(unrealized_total, 1),
             "total_pnl": round(realized_total + unrealized_total, 1),
+            "average_holding_days": round(sum(holding_days) / len(holding_days), 1)
+            if holding_days
+            else 0.0,
+            "best_win_streak": self._best_streak(closed_trades, positive=True),
+            "best_loss_streak": self._best_streak(closed_trades, positive=False),
+            "ticker_pnl": self._ticker_pnl(closed_trades),
             "recent_signals": len(self.signals[-5:]),
+            "recent_signal_actions": self._recent_signal_actions(),
             "positions": open_positions[:5],
         }
         self._write_json(self.summary_path, summary)
@@ -213,6 +228,8 @@ class PaperTradeTracker:
     def _close_position(self, ticker, price, timestamp, reason, close_type):
         position = self.positions.pop(ticker)
         realized_pnl = round((price - position["entry_price"]) * position["quantity"], 1)
+        opened_dt = self._parse_timestamp(position.get("opened_at"))
+        closed_dt = self._parse_timestamp(timestamp)
         event = {
             "timestamp": timestamp,
             "event": "close",
@@ -224,6 +241,7 @@ class PaperTradeTracker:
             "reason": reason,
             "close_type": close_type,
             "opened_at": position.get("opened_at"),
+            "holding_days": self._holding_days(opened_dt, closed_dt),
         }
         self.history.append(event)
         return event
@@ -244,6 +262,56 @@ class PaperTradeTracker:
 
     def _now_text(self):
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _parse_timestamp(self, value):
+        if not value:
+            return None
+        try:
+            return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError):
+            return None
+
+    def _holding_days(self, opened_dt, current_dt):
+        if not opened_dt or not current_dt:
+            return 0.0
+        return round(max((current_dt - opened_dt).total_seconds(), 0) / 86400, 1)
+
+    def _recent_signal_actions(self):
+        actions = []
+        for run in self.signals[-5:]:
+            shortlisted = run.get("shortlisted_candidates") or []
+            for item in shortlisted[:3]:
+                ticker = item.get("ticker")
+                action = item.get("action")
+                if ticker and action:
+                    actions.append(f"{ticker}:{action}")
+        return actions[-5:]
+
+    def _best_streak(self, closed_trades, positive=True):
+        best = 0
+        current = 0
+        for item in closed_trades:
+            pnl = self._safe_float(item.get("realized_pnl"))
+            matched = pnl > 0 if positive else pnl < 0
+            if matched:
+                current += 1
+                best = max(best, current)
+            else:
+                current = 0
+        return best
+
+    def _ticker_pnl(self, closed_trades):
+        totals = {}
+        for item in closed_trades:
+            ticker = item.get("ticker")
+            if not ticker:
+                continue
+            totals[ticker] = round(
+                self._safe_float(totals.get(ticker)) + self._safe_float(item.get("realized_pnl")),
+                1,
+            )
+        ranked = sorted(totals.items(), key=lambda item: abs(item[1]), reverse=True)
+        return [{"ticker": ticker, "realized_pnl": pnl} for ticker, pnl in ranked[:5]]
 
     def _safe_float(self, value, default=0.0):
         try:

@@ -179,10 +179,8 @@ def confirmed_by_price(watchlist, market_data, watchlist_rules):
 def filter_decisions_by_watchlist(decisions, watchlist, confirmed_watch_tickers, watchlist_rules):
     if not decisions:
         return []
-    if not watchlist_rules.get("buy_requires_price_confirmation", False):
-        return decisions
     watch_tickers = {
-        item.get("ticker")
+        item.get("ticker"): item.get("action")
         for item in watchlist.get("tickers", [])[:10]
         if item.get("ticker")
     }
@@ -191,7 +189,17 @@ def filter_decisions_by_watchlist(decisions, watchlist, confirmed_watch_tickers,
     for item in decisions:
         action = str(item.get("action", "")).lower()
         ticker = item.get("ticker")
-        if action == "buy" and ticker in watch_tickers and ticker not in confirmed:
+        watch_action = str(watch_tickers.get(ticker, "")).upper()
+        if action == "buy" and watch_action == "AVOID":
+            item = dict(item)
+            item["action"] = "avoid"
+            item["logic"] = f"{item.get('logic', '')} blocked by watchlist avoid".strip()
+        elif (
+            action == "buy"
+            and watchlist_rules.get("buy_requires_price_confirmation", False)
+            and ticker in watch_tickers
+            and ticker not in confirmed
+        ):
             item = dict(item)
             item["action"] = "watch"
             item["logic"] = f"{item.get('logic', '')} price confirmation missing".strip()
@@ -225,9 +233,14 @@ def shortlist_ai_proposals(
         has_news = _has_related_news(ticker, news_data)
         market_item = market_data.get(ticker, {})
         change_rate = _safe_float(market_item.get("change_rate"))
+        watch_action = str((watchlist_rows.get(ticker) or {}).get("action", "")).upper()
 
         if action == "BUY":
-            if ticker in watchlist_rows and ticker not in confirmed:
+            if watch_action == "AVOID":
+                item = dict(item)
+                item["action"] = "AVOID"
+                item["logic"] = f"{item.get('logic', '')} blocked by watchlist avoid".strip()
+            elif ticker in watchlist_rows and ticker not in confirmed:
                 item = dict(item)
                 item["action"] = "WATCH"
                 item["logic"] = f"{item.get('logic', '')} waiting for price confirmation".strip()

@@ -26,6 +26,10 @@ class WatchlistBuilder:
                 "bearish_mentions": 0,
                 "video_count": 0,
                 "groups": set(),
+                "fixed_source_count": 0,
+                "search_source_count": 0,
+                "fixed_channels": defaultdict(int),
+                "search_keywords": defaultdict(int),
             }
         )
         ticker_stats = defaultdict(
@@ -38,6 +42,10 @@ class WatchlistBuilder:
                 "channels": set(),
                 "groups": set(),
                 "reasons": set(),
+                "fixed_source_count": 0,
+                "search_source_count": 0,
+                "fixed_channels": defaultdict(int),
+                "search_keywords": defaultdict(int),
             }
         )
         source_stats = {
@@ -56,8 +64,15 @@ class WatchlistBuilder:
             channel = item.get("channel")
             groups = item.get("group_list") or [item.get("channel_group") or "search"]
             sources = item.get("source_list") or [item.get("source") or ""]
+            unique_sources = {str(value) for value in sources if value}
+            fixed_source_count = sum(
+                1 for source in unique_sources if not source.startswith("search:")
+            )
+            search_source_count = sum(
+                1 for source in unique_sources if source.startswith("search:")
+            )
 
-            for source in {str(value) for value in sources if value}:
+            for source in unique_sources:
                 if source.startswith("search:"):
                     source_stats["search_items"] += 1
                     keyword = source.split("search:", 1)[1] or "unknown"
@@ -73,6 +88,11 @@ class WatchlistBuilder:
                 stats["weighted_score_total"] += score * weight
                 stats["video_count"] += 1
                 stats["groups"].update(groups)
+                stats["fixed_source_count"] += fixed_source_count
+                stats["search_source_count"] += search_source_count
+                self._apply_source_breakdown(
+                    stats["fixed_channels"], stats["search_keywords"], unique_sources, channel
+                )
                 if score >= 0.25:
                     stats["bullish_mentions"] += 1
                 elif score <= -0.25:
@@ -90,6 +110,11 @@ class WatchlistBuilder:
                 if channel:
                     stats["channels"].add(channel)
                 stats["groups"].update(groups)
+                stats["fixed_source_count"] += fixed_source_count
+                stats["search_source_count"] += search_source_count
+                self._apply_source_breakdown(
+                    stats["fixed_channels"], stats["search_keywords"], unique_sources, channel
+                )
                 for theme in themes:
                     stats["reasons"].add(f"theme:{theme}")
                 for source in sources:
@@ -149,6 +174,14 @@ class WatchlistBuilder:
                     "weighted_score": round(weighted_avg_score, 2),
                     "video_count": stats["video_count"],
                     "group_count": len(stats["groups"]),
+                    "fixed_source_count": stats["fixed_source_count"],
+                    "search_source_count": stats["search_source_count"],
+                    "top_fixed_channels": self._top_named_counts(
+                        stats["fixed_channels"], "name"
+                    ),
+                    "top_search_keywords": self._top_named_counts(
+                        stats["search_keywords"], "keyword"
+                    ),
                     "bullish_mentions": stats["bullish_mentions"],
                     "bearish_mentions": stats["bearish_mentions"],
                     "action": action,
@@ -189,6 +222,14 @@ class WatchlistBuilder:
                     "mention_count": stats["mention_count"],
                     "channel_count": distinct_channels,
                     "group_count": distinct_groups,
+                    "fixed_source_count": stats["fixed_source_count"],
+                    "search_source_count": stats["search_source_count"],
+                    "top_fixed_channels": self._top_named_counts(
+                        stats["fixed_channels"], "name"
+                    ),
+                    "top_search_keywords": self._top_named_counts(
+                        stats["search_keywords"], "keyword"
+                    ),
                     "action": self._ticker_action(
                         weighted_avg_score, distinct_channels, distinct_groups
                     ),
@@ -234,3 +275,16 @@ class WatchlistBuilder:
             return float(value)
         except (TypeError, ValueError):
             return default
+
+    def _apply_source_breakdown(self, fixed_channels, search_keywords, sources, fallback_channel):
+        for source in sources:
+            if source.startswith("search:"):
+                keyword = source.split("search:", 1)[1] or "unknown"
+                search_keywords[keyword] += 1
+            else:
+                channel_name = source.split("channel:", 1)[1] or fallback_channel or "unknown"
+                fixed_channels[channel_name] += 1
+
+    def _top_named_counts(self, counts, key_name):
+        items = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+        return [{key_name: name, "count": count} for name, count in items[:3]]
