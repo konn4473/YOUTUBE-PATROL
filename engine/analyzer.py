@@ -11,6 +11,12 @@ class AIAnalyzer:
         self.api_enabled = False
         self.request_timeout = int(os.getenv("GEMINI_REQUEST_TIMEOUT_SECONDS", "10"))
         self.max_retries = int(os.getenv("GEMINI_MAX_RETRIES", "2"))
+        self.sentiment_model = os.getenv(
+            "GEMINI_SENTIMENT_MODEL", "gemini-3.1-flash-lite"
+        )
+        self.sentiment_request_limit = int(
+            os.getenv("GEMINI_SENTIMENT_REQUEST_LIMIT", "3")
+        )
         self.retry_backoff_seconds = float(
             os.getenv("GEMINI_RETRY_BACKOFF_SECONDS", "3")
         )
@@ -18,6 +24,8 @@ class AIAnalyzer:
         self.api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         self.base_url = "https://generativelanguage.googleapis.com/v1beta/models"
         self.cooldown_path = os.path.join("data", "gemini_cooldown.json")
+        self.sentiment_requests_used = 0
+        self.sequential_sentiment_mode = True
         if self.api_key and self.api_key != "your_google_api_key_here":
             self.api_enabled = True
         else:
@@ -33,6 +41,18 @@ class AIAnalyzer:
         cooldown_reason = self._get_cooldown_reason()
         if cooldown_reason:
             return {"score": 0.0, "reason": cooldown_reason}
+        if (
+            self.sentiment_request_limit >= 0
+            and self.sentiment_requests_used >= self.sentiment_request_limit
+        ):
+            return {
+                "score": 0.0,
+                "reason": (
+                    "sentiment request budget reached "
+                    f"({self.sentiment_requests_used}/{self.sentiment_request_limit})"
+                ),
+            }
+        self.sentiment_requests_used += 1
 
         prompt = (
             "Analyze the sentiment of the following YouTube-related text for market impact. "
@@ -41,7 +61,7 @@ class AIAnalyzer:
             f"Text:\n{text}"
         )
         try:
-            response_text = self._generate_content("gemini-2.5-flash", prompt)
+            response_text = self._generate_content(self.sentiment_model, prompt)
             if not response_text:
                 return {"score": 0.0, "reason": "sentiment analysis timeout"}
             return self._parse_json_response(
@@ -269,12 +289,23 @@ class AIAnalyzer:
             return {}
         return {
             "overall_action": watchlist.get("overall_action"),
+            "source_summary": {
+                "fixed_channel_items": ((watchlist.get("source_summary") or {}).get("fixed_channel_items", 0)),
+                "search_items": ((watchlist.get("source_summary") or {}).get("search_items", 0)),
+                "fixed_channel_count": ((watchlist.get("source_summary") or {}).get("fixed_channel_count", 0)),
+                "search_keyword_count": ((watchlist.get("source_summary") or {}).get("search_keyword_count", 0)),
+                "top_fixed_channels": ((watchlist.get("source_summary") or {}).get("top_fixed_channels", []))[:3],
+            },
             "themes": [
                 {
                     "name": item.get("name"),
                     "action": item.get("action"),
                     "score": item.get("score"),
                     "video_count": item.get("video_count"),
+                    "group_count": item.get("group_count"),
+                    "fixed_source_count": item.get("fixed_source_count"),
+                    "search_source_count": item.get("search_source_count"),
+                    "top_fixed_channels": (item.get("top_fixed_channels") or [])[:2],
                 }
                 for item in watchlist.get("themes", [])[:3]
             ],
@@ -285,6 +316,11 @@ class AIAnalyzer:
                     "score": item.get("score"),
                     "avg_sentiment": item.get("avg_sentiment"),
                     "mention_count": item.get("mention_count"),
+                    "group_count": item.get("group_count"),
+                    "fixed_source_count": item.get("fixed_source_count"),
+                    "search_source_count": item.get("search_source_count"),
+                    "top_fixed_channels": (item.get("top_fixed_channels") or [])[:2],
+                    "reasons": (item.get("reasons") or [])[:3],
                 }
                 for item in watchlist.get("tickers", [])[:5]
             ],
