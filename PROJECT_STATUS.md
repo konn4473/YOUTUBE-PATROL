@@ -104,7 +104,7 @@
 - 実行時間と quota を見て、YouTube 処理量は少し抑えた
 - 実行時間はやや長めなので、今後も監視は必要
 - Gemini の quota によっては日によって応答が重くなる
-- Gemini 3.1 Flash Lite を感情分析に使い、RPM を超えにくくする
+- Gemini 2.5 Flash Lite を感情分析に使い、RPM 超過を抑える
 - watchlist はまだ検索由来が強く、固定チャンネル由来は観察中
 - YouTube 通知は watchlist 行動や上位候補の変化でも飛ぶ
 - main 通知は confirmed watch、AI提案、候補絞り込みの差分を出す

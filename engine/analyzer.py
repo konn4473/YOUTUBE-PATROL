@@ -12,7 +12,7 @@ class AIAnalyzer:
         self.request_timeout = int(os.getenv("GEMINI_REQUEST_TIMEOUT_SECONDS", "10"))
         self.max_retries = int(os.getenv("GEMINI_MAX_RETRIES", "2"))
         self.sentiment_model = os.getenv(
-            "GEMINI_SENTIMENT_MODEL", "gemini-3.1-flash-lite"
+            "GEMINI_SENTIMENT_MODEL", "gemini-2.5-flash-lite"
         )
         self.proposal_model = os.getenv("GEMINI_PROPOSAL_MODEL", "gemini-2.0-flash")
         self.council_model = os.getenv("GEMINI_COUNCIL_MODEL", "gemini-2.0-flash")

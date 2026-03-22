@@ -157,7 +157,7 @@ class TestYouTubeAnalyzer(unittest.TestCase):
 
         analyzer.analyze_sentiment("test")
 
-        self.assertEqual(called["model"], "gemini-3.1-flash-lite")
+        self.assertEqual(called["model"], "gemini-2.5-flash-lite")
 
 
 if __name__ == "__main__":
