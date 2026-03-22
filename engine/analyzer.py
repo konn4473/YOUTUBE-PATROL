@@ -14,6 +14,8 @@ class AIAnalyzer:
         self.sentiment_model = os.getenv(
             "GEMINI_SENTIMENT_MODEL", "gemini-3.1-flash-lite"
         )
+        self.proposal_model = os.getenv("GEMINI_PROPOSAL_MODEL", "gemini-2.0-flash")
+        self.council_model = os.getenv("GEMINI_COUNCIL_MODEL", "gemini-2.0-flash")
         self.sentiment_request_limit = int(
             os.getenv("GEMINI_SENTIMENT_REQUEST_LIMIT", "3")
         )
@@ -28,6 +30,12 @@ class AIAnalyzer:
         self.sequential_sentiment_mode = True
         if self.api_key and self.api_key != "your_google_api_key_here":
             self.api_enabled = True
+            print(
+                "Gemini models: "
+                f"sentiment={self.sentiment_model}, "
+                f"proposal={self.proposal_model}, "
+                f"council={self.council_model}"
+            )
         else:
             self.api_key = None
             print("GOOGLE_API_KEY is not configured. Running in mock mode.")
@@ -95,7 +103,7 @@ class AIAnalyzer:
             f"Context:\n{json.dumps(compact_context, ensure_ascii=False, indent=2)}"
         )
         try:
-            response_text = self._generate_content("gemini-2.0-flash", prompt)
+            response_text = self._generate_content(self.council_model, prompt)
             if not response_text:
                 return []
             return self._parse_json_response(response_text, [])
@@ -126,7 +134,7 @@ class AIAnalyzer:
             f"Context:\n{json.dumps(compact_context, ensure_ascii=False, indent=2)}"
         )
         try:
-            response_text = self._generate_content("gemini-2.0-flash", prompt)
+            response_text = self._generate_content(self.proposal_model, prompt)
             if not response_text:
                 return []
             parsed = self._parse_json_response(response_text, [])

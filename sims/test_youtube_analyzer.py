@@ -1,11 +1,16 @@
 import os
 import sys
 import unittest
+from datetime import datetime, timedelta
 
 sys.path.append(os.getcwd())
 
 from engine.analyzer import AIAnalyzer
 from engine.youtube_analyzer import YouTubeAnalyzer
+
+
+def _days_ago_text(days):
+    return (datetime.utcnow() - timedelta(days=days)).strftime("%Y%m%d")
 
 
 class FakeYouTubeAnalyzer(YouTubeAnalyzer):
@@ -59,14 +64,14 @@ class TestYouTubeAnalyzer(unittest.TestCase):
                     "video_id": "fixed-new",
                     "title": "新しい固定動画",
                     "channel": "Fixed Channel",
-                    "published": "20260319",
+                    "published": _days_ago_text(0),
                     "description": "",
                 },
                 {
                     "video_id": "both-sources",
                     "title": "固定と検索で重複",
                     "channel": "Fixed Channel",
-                    "published": "20260318",
+                    "published": _days_ago_text(1),
                     "description": "",
                 },
             ],
@@ -75,14 +80,14 @@ class TestYouTubeAnalyzer(unittest.TestCase):
                     "video_id": "both-sources",
                     "title": "固定と検索で重複",
                     "channel": "Fixed Channel",
-                    "published": "20260318",
+                    "published": _days_ago_text(1),
                     "description": "",
                 },
                 {
                     "video_id": "search-only",
                     "title": "検索だけの動画",
                     "channel": "Search Channel",
-                    "published": "20260317",
+                    "published": _days_ago_text(2),
                     "description": "",
                 },
             ],
@@ -111,7 +116,7 @@ class TestYouTubeAnalyzer(unittest.TestCase):
                     "video_id": "fixed-new",
                     "title": "新しい固定動画",
                     "channel": "Fixed Channel",
-                    "published": "20260319",
+                    "published": _days_ago_text(0),
                     "description": "",
                 }
             ],
