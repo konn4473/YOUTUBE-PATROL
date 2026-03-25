@@ -5,6 +5,10 @@ on:
   schedule:
     - cron: "30 22 * * *"
 
+concurrency:
+  group: morning-patrol-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   patrol:
     runs-on: ubuntu-latest
@@ -23,19 +27,27 @@ jobs:
           DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}
           APP_ENV=production
           LOG_LEVEL=INFO
+          GEMINI_SENTIMENT_MODEL=gemini-2.5-flash-lite
+          GEMINI_SENTIMENT_FALLBACK_MODELS=gemini-2.5-flash-lite
+          GEMINI_PROPOSAL_MODEL=gemini-2.0-flash
+          GEMINI_PROPOSAL_FALLBACK_MODELS=gemini-2.5-flash,gemini-2.5-flash-lite
+          GEMINI_COUNCIL_MODEL=gemini-2.0-flash
+          GEMINI_COUNCIL_FALLBACK_MODELS=gemini-2.5-flash,gemini-2.5-flash-lite
+          GEMINI_SENTIMENT_REQUEST_LIMIT=3
           GEMINI_REQUEST_TIMEOUT_SECONDS=10
           GEMINI_MAX_RETRIES=0
           GEMINI_RETRY_BACKOFF_SECONDS=1
           GEMINI_COOLDOWN_SECONDS=60
           EOF
 
-      - name: Run main patrol
-        run: docker compose run --rm --user root app python -u engine/main.py
-
       - name: Run youtube patrol
         run: docker compose run --rm --user root youtube python -u engine/youtube_job.py
 
+      - name: Run main patrol
+        run: docker compose run --rm --user root app python -u engine/main.py
+
       - name: Upload patrol artifacts
+        if: always()
         uses: actions/upload-artifact@v6
         with:
           name: patrol-data

@@ -1,6 +1,6 @@
 # Decisions
 
-最終更新: 2026-03-19
+最終更新: 2026-03-25
 
 ## 主要な決定事項
 
@@ -50,7 +50,9 @@
 ### 8. 紙上売買で AI 提案を検証する
 
 - AI 提案と shortlist を毎回記録する
+- 最終判断も別段階として記録する
 - 仮想ポジションの損益を自動集計する
+- proposal と final は分けて見られるようにする
 - これを本番自動売買前の検証材料にする
 
 ### 9. 実行基盤は当面 GitHub Actions を使う
@@ -87,3 +89,25 @@
 - 1回の巡回で使う感情分析回数に上限を持たせる
 - それを超えた分は軽量な `0.0` 応答で継続する
 - 感情分析モデルは安定運用を優先して `Gemini 2.5 Flash Lite` を使う
+
+### 15. 同一 workflow の main は最新の YouTube watchlist を使う
+
+- GitHub Actions では `youtube patrol` を `main patrol` より先に実行する
+- 同じ run で更新された `latest_watchlist.json` を `main patrol` が読む
+- 同じ branch の重複実行は `concurrency` で抑止する
+- 古すぎる watchlist は `main patrol` で使わず、安全側に倒す
+
+### 16. Gemini の AI 出力は schema 付き JSON を基本にする
+
+- prompt のお願いだけに頼らず、API の `responseSchema` も使う
+- それでも壊れる場合に備えて後段の normalize は残す
+- 最小変更で壊れにくさを上げる
+
+### 17. 運用の切り分けに必要な状態は report と通知へ残す
+
+- `watchlist` の fresh / stale 状態を残す
+- `watchlist` の上位候補の変化も残す
+- AI の live / mock、model、cooldown 状態を残す
+- 主要設定と AI request config も report に残す
+- AI request config の変化は通知でも追えるようにする
+- 変化があった日は差分として追えるようにする

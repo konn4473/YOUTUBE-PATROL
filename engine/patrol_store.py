@@ -131,9 +131,14 @@ class PatrolStore:
             diff["new_news_count"] > 0
             or diff["new_youtube_count"] > 0
             or diff["decision_count"] > 0
+            or diff.get("watchlist_status_changed")
+            or diff.get("top_watchlist_changed")
+            or diff.get("runtime_config_changed")
+            or diff.get("ai_runtime_changed")
             or diff.get("confirmed_watch_changed")
             or diff.get("top_ai_proposals_changed")
             or diff.get("top_shortlisted_changed")
+            or diff.get("top_decisions_changed")
         )
         if not interesting:
             return False
@@ -184,6 +189,9 @@ class PatrolStore:
                 for item in payload.get("youtube", [])
             ],
             "watchlist": payload.get("watchlist", {}),
+            "watchlist_status": payload.get("watchlist_status", "unknown"),
+            "runtime_config": payload.get("runtime_config", {}),
+            "ai_runtime": payload.get("ai_runtime", {}),
             "confirmed_watch_tickers": payload.get("confirmed_watch_tickers", []),
             "ai_proposals": payload.get("ai_proposals", []),
             "shortlisted_candidates": payload.get("shortlisted_candidates", []),
@@ -199,9 +207,38 @@ class PatrolStore:
         previous_confirmed = []
         previous_ai = []
         previous_shortlisted = []
+        previous_decisions = []
+        previous_watchlist_status = "unknown"
+        previous_watchlist_top = []
+        previous_runtime_config = {}
+        previous_ai_mode = "unknown"
+        previous_ai_models = {}
+        previous_ai_cooldown = None
+        previous_ai_request_config = {}
         if previous:
             previous_news_ids = {item["id"] for item in previous.get("news", [])}
             previous_youtube_ids = {item["id"] for item in previous.get("youtube", [])}
+            previous_watchlist_status = previous.get("watchlist_status", "unknown")
+            previous_watchlist_top = [
+                f"{item.get('ticker')}:{item.get('action')}"
+                for item in (previous.get("watchlist") or {}).get("tickers", [])[:3]
+                if item.get("ticker") and item.get("action")
+            ]
+            previous_runtime_config = previous.get("runtime_config") or {}
+            previous_ai_runtime = previous.get("ai_runtime") or {}
+            previous_ai_mode = "live" if previous_ai_runtime.get("api_enabled") else "mock"
+            previous_ai_models = {
+                "sentiment_model": previous_ai_runtime.get("sentiment_model"),
+                "proposal_model": previous_ai_runtime.get("proposal_model"),
+                "council_model": previous_ai_runtime.get("council_model"),
+            }
+            previous_ai_cooldown = previous_ai_runtime.get("cooldown_reason")
+            previous_ai_request_config = {
+                "request_timeout": previous_ai_runtime.get("request_timeout"),
+                "max_retries": previous_ai_runtime.get("max_retries"),
+                "retry_backoff_seconds": previous_ai_runtime.get("retry_backoff_seconds"),
+                "cooldown_seconds": previous_ai_runtime.get("cooldown_seconds"),
+            }
             previous_confirmed = previous.get("confirmed_watch_tickers", [])[:5]
             previous_ai = [
                 item.get("ticker")
@@ -211,6 +248,11 @@ class PatrolStore:
             previous_shortlisted = [
                 f"{item.get('ticker')}:{item.get('action')}"
                 for item in previous.get("shortlisted_candidates", [])[:3]
+                if item.get("ticker") and item.get("action")
+            ]
+            previous_decisions = [
+                f"{item.get('ticker')}:{item.get('action')}"
+                for item in previous.get("decisions", [])[:3]
                 if item.get("ticker") and item.get("action")
             ]
 
@@ -235,6 +277,32 @@ class PatrolStore:
             for item in current.get("shortlisted_candidates", [])[:3]
             if item.get("ticker") and item.get("action")
         ]
+        current_decisions = [
+            f"{item.get('ticker')}:{item.get('action')}"
+            for item in current.get("decisions", [])[:3]
+            if item.get("ticker") and item.get("action")
+        ]
+        current_watchlist_status = current.get("watchlist_status", "unknown")
+        current_watchlist_top = [
+            f"{item.get('ticker')}:{item.get('action')}"
+            for item in (current.get("watchlist") or {}).get("tickers", [])[:3]
+            if item.get("ticker") and item.get("action")
+        ]
+        current_runtime_config = current.get("runtime_config") or {}
+        current_ai_runtime = current.get("ai_runtime") or {}
+        current_ai_mode = "live" if current_ai_runtime.get("api_enabled") else "mock"
+        current_ai_models = {
+            "sentiment_model": current_ai_runtime.get("sentiment_model"),
+            "proposal_model": current_ai_runtime.get("proposal_model"),
+            "council_model": current_ai_runtime.get("council_model"),
+        }
+        current_ai_cooldown = current_ai_runtime.get("cooldown_reason")
+        current_ai_request_config = {
+            "request_timeout": current_ai_runtime.get("request_timeout"),
+            "max_retries": current_ai_runtime.get("max_retries"),
+            "retry_backoff_seconds": current_ai_runtime.get("retry_backoff_seconds"),
+            "cooldown_seconds": current_ai_runtime.get("cooldown_seconds"),
+        }
 
         return {
             "new_news_count": len(new_news),
@@ -242,6 +310,29 @@ class PatrolStore:
             "decision_count": len(current.get("decisions", [])),
             "new_news": new_news[:5],
             "new_youtube": new_youtube[:5],
+            "watchlist_status_changed": previous_watchlist_status != current_watchlist_status,
+            "previous_watchlist_status": previous_watchlist_status,
+            "current_watchlist_status": current_watchlist_status,
+            "top_watchlist_changed": previous_watchlist_top != current_watchlist_top,
+            "previous_top_watchlist": previous_watchlist_top,
+            "current_top_watchlist": current_watchlist_top,
+            "runtime_config_changed": previous_runtime_config != current_runtime_config,
+            "previous_runtime_config": previous_runtime_config,
+            "current_runtime_config": current_runtime_config,
+            "ai_runtime_changed": (
+                previous_ai_mode != current_ai_mode
+                or previous_ai_models != current_ai_models
+                or previous_ai_cooldown != current_ai_cooldown
+                or previous_ai_request_config != current_ai_request_config
+            ),
+            "previous_ai_mode": previous_ai_mode,
+            "current_ai_mode": current_ai_mode,
+            "previous_ai_models": previous_ai_models,
+            "current_ai_models": current_ai_models,
+            "previous_ai_cooldown": previous_ai_cooldown,
+            "current_ai_cooldown": current_ai_cooldown,
+            "previous_ai_request_config": previous_ai_request_config,
+            "current_ai_request_config": current_ai_request_config,
             "confirmed_watch_changed": previous_confirmed != current_confirmed,
             "previous_confirmed_watch_tickers": previous_confirmed,
             "current_confirmed_watch_tickers": current_confirmed,
@@ -251,6 +342,9 @@ class PatrolStore:
             "top_shortlisted_changed": previous_shortlisted != current_shortlisted,
             "previous_top_shortlisted": previous_shortlisted,
             "current_top_shortlisted": current_shortlisted,
+            "top_decisions_changed": previous_decisions != current_decisions,
+            "previous_top_decisions": previous_decisions,
+            "current_top_decisions": current_decisions,
         }
 
     def _build_youtube_diff(self, previous, current, previous_watchlist=None, current_watchlist=None):
@@ -295,7 +389,15 @@ class PatrolStore:
             f"- Shortlisted candidates: {len(snapshot.get('shortlisted_candidates', []))}",
             f"- Paper trade events: {len(snapshot.get('paper_trade_events', []))}",
             f"- Decisions: {len(snapshot.get('decisions', []))}",
+            f"- Watchlist tickers: {len((snapshot.get('watchlist') or {}).get('tickers', []))}",
+            f"- Watchlist action: {(snapshot.get('watchlist') or {}).get('overall_action', 'NO SIGNAL')}",
+            f"- Watchlist timestamp: {(snapshot.get('watchlist') or {}).get('timestamp', 'None')}",
             f"- Confirmed watch tickers: {len(snapshot.get('confirmed_watch_tickers', []))}",
+            f"- Watchlist status: {snapshot.get('watchlist_status', 'unknown')}",
+            f"- AI mode: {'live' if (snapshot.get('ai_runtime') or {}).get('api_enabled') else 'mock'}",
+            f"- AI sentiment requests: {(snapshot.get('ai_runtime') or {}).get('sentiment_requests_used', 0)}/"
+            f"{(snapshot.get('ai_runtime') or {}).get('sentiment_request_limit', 0)}",
+            f"- AI cooldown active: {'yes' if (snapshot.get('ai_runtime') or {}).get('cooldown_reason') else 'no'}",
             f"- New news since last run: {diff['new_news_count']}",
             f"- New YouTube items since last run: {diff['new_youtube_count']}",
             "",
@@ -318,7 +420,76 @@ class PatrolStore:
         else:
             lines.append("- None")
 
+        lines.extend(["", "## Runtime Config"])
+        runtime_config = snapshot.get("runtime_config") or {}
+        if runtime_config:
+            lines.append(
+                f"- youtube_max_videos={runtime_config.get('youtube_max_videos')} "
+                f"youtube_max_items={runtime_config.get('youtube_max_items')} "
+                f"youtube_recent_hours={runtime_config.get('youtube_recent_hours')}"
+            )
+            lines.append(
+                f"- use_transcripts={runtime_config.get('use_transcripts')} "
+                f"parallel_workers={runtime_config.get('parallel_workers')} "
+                f"enable_youtube_analysis={runtime_config.get('enable_youtube_analysis')}"
+            )
+            lines.append(
+                f"- max_watchlist_age_hours={runtime_config.get('max_watchlist_age_hours')} "
+                f"buy_requires_price_confirmation={runtime_config.get('buy_requires_price_confirmation')} "
+                f"min_price_confirmation_change_pct={runtime_config.get('min_price_confirmation_change_pct')}"
+            )
+            lines.append(
+                f"- ai_proposal_min_confidence={runtime_config.get('ai_proposal_min_confidence')}"
+            )
+        else:
+            lines.append("- None")
+
+        lines.extend(["", "## Watchlist Preview"])
+        watchlist = snapshot.get("watchlist") or {}
+        if watchlist:
+            lines.append(
+                f"- Overall action: {watchlist.get('overall_action', 'NO SIGNAL')}"
+            )
+            tickers = watchlist.get("tickers", [])
+            if tickers:
+                for item in tickers[:5]:
+                    lines.append(
+                        f"- {item.get('ticker')}: {item.get('action')} "
+                        f"score={item.get('score')} reasons={','.join(item.get('reasons', [])) or 'none'}"
+                    )
+            else:
+                lines.append("- None")
+        else:
+            lines.append("- None")
+
+        lines.extend(["", "## Confirmed Watch"])
+        confirmed_watch = snapshot.get("confirmed_watch_tickers", [])
+        if confirmed_watch:
+            for ticker in confirmed_watch[:5]:
+                lines.append(f"- {ticker}")
+        else:
+            lines.append("- None")
+
         lines.extend(["", "## AI Proposals"])
+        ai_runtime = snapshot.get("ai_runtime") or {}
+        if ai_runtime:
+            lines.append(
+                "- Runtime: "
+                f"sentiment={ai_runtime.get('sentiment_model')} "
+                f"proposal={ai_runtime.get('proposal_model')} "
+                f"council={ai_runtime.get('council_model')} "
+                f"requests={ai_runtime.get('sentiment_requests_used', 0)}/"
+                f"{ai_runtime.get('sentiment_request_limit', 0)}"
+            )
+            lines.append(
+                "- AI request config: "
+                f"timeout={ai_runtime.get('request_timeout')} "
+                f"retries={ai_runtime.get('max_retries')} "
+                f"backoff={ai_runtime.get('retry_backoff_seconds')} "
+                f"cooldown={ai_runtime.get('cooldown_seconds')}"
+            )
+            if ai_runtime.get("cooldown_reason"):
+                lines.append(f"- AI cooldown: {ai_runtime.get('cooldown_reason')}")
         if snapshot.get("ai_proposals"):
             for item in snapshot["ai_proposals"][:5]:
                 lines.append(
@@ -337,6 +508,97 @@ class PatrolStore:
         else:
             lines.append("- None")
 
+        if (
+            diff.get("watchlist_status_changed")
+            or diff.get("top_watchlist_changed")
+            or diff.get("runtime_config_changed")
+            or diff.get("ai_runtime_changed")
+            or diff.get("confirmed_watch_changed")
+            or diff.get("top_ai_proposals_changed")
+            or diff.get("top_shortlisted_changed")
+            or diff.get("top_decisions_changed")
+        ):
+            lines.extend(["", "## Stage Changes"])
+            if diff.get("watchlist_status_changed"):
+                lines.append(
+                    "- Watchlist status: "
+                    f"{diff.get('previous_watchlist_status', 'unknown')}"
+                    " -> "
+                    f"{diff.get('current_watchlist_status', 'unknown')}"
+                )
+            if diff.get("top_watchlist_changed"):
+                lines.append(
+                    "- Watchlist top: "
+                    f"{', '.join(diff.get('previous_top_watchlist', [])) or 'None'}"
+                    " -> "
+                    f"{', '.join(diff.get('current_top_watchlist', [])) or 'None'}"
+                )
+            if diff.get("runtime_config_changed"):
+                before_config = diff.get("previous_runtime_config", {})
+                after_config = diff.get("current_runtime_config", {})
+                lines.append(
+                    "- Runtime config: "
+                    f"youtube_max_videos={before_config.get('youtube_max_videos')}->{after_config.get('youtube_max_videos')} "
+                    f"youtube_max_items={before_config.get('youtube_max_items')}->{after_config.get('youtube_max_items')} "
+                    f"max_watchlist_age_hours={before_config.get('max_watchlist_age_hours')}->{after_config.get('max_watchlist_age_hours')}"
+                )
+            if diff.get("ai_runtime_changed"):
+                before_mode = diff.get("previous_ai_mode", "unknown")
+                after_mode = diff.get("current_ai_mode", "unknown")
+                before_models = diff.get("previous_ai_models", {})
+                after_models = diff.get("current_ai_models", {})
+                lines.append(
+                    "- AI runtime: "
+                    f"{before_mode}({before_models.get('sentiment_model')},{before_models.get('proposal_model')},{before_models.get('council_model')})"
+                    " -> "
+                    f"{after_mode}({after_models.get('sentiment_model')},{after_models.get('proposal_model')},{after_models.get('council_model')})"
+                )
+                if diff.get("previous_ai_cooldown") != diff.get("current_ai_cooldown"):
+                    lines.append(
+                        "- AI cooldown: "
+                        f"{diff.get('previous_ai_cooldown') or 'None'}"
+                        " -> "
+                        f"{diff.get('current_ai_cooldown') or 'None'}"
+                    )
+                if diff.get("previous_ai_request_config") != diff.get("current_ai_request_config"):
+                    before_request = diff.get("previous_ai_request_config", {})
+                    after_request = diff.get("current_ai_request_config", {})
+                    lines.append(
+                        "- AI request config: "
+                        f"timeout={before_request.get('request_timeout')}->{after_request.get('request_timeout')} "
+                        f"retries={before_request.get('max_retries')}->{after_request.get('max_retries')} "
+                        f"backoff={before_request.get('retry_backoff_seconds')}->{after_request.get('retry_backoff_seconds')} "
+                        f"cooldown={before_request.get('cooldown_seconds')}->{after_request.get('cooldown_seconds')}"
+                    )
+            if diff.get("confirmed_watch_changed"):
+                lines.append(
+                    "- Confirmed watch: "
+                    f"{', '.join(diff.get('previous_confirmed_watch_tickers', [])) or 'None'}"
+                    " -> "
+                    f"{', '.join(diff.get('current_confirmed_watch_tickers', [])) or 'None'}"
+                )
+            if diff.get("top_ai_proposals_changed"):
+                lines.append(
+                    "- AI proposals: "
+                    f"{', '.join(diff.get('previous_top_ai_proposals', [])) or 'None'}"
+                    " -> "
+                    f"{', '.join(diff.get('current_top_ai_proposals', [])) or 'None'}"
+                )
+            if diff.get("top_shortlisted_changed"):
+                lines.append(
+                    "- Shortlisted: "
+                    f"{', '.join(diff.get('previous_top_shortlisted', [])) or 'None'}"
+                    " -> "
+                    f"{', '.join(diff.get('current_top_shortlisted', [])) or 'None'}"
+                )
+            if diff.get("top_decisions_changed"):
+                lines.append(
+                    "- Final decisions: "
+                    f"{', '.join(diff.get('previous_top_decisions', [])) or 'None'}"
+                    " -> "
+                    f"{', '.join(diff.get('current_top_decisions', [])) or 'None'}"
+                )
+
         lines.extend(["", "## Paper Trade Summary"])
         paper_summary = snapshot.get("paper_trade_summary") or {}
         if paper_summary:
@@ -352,6 +614,12 @@ class PatrolStore:
             recent_actions = paper_summary.get("recent_signal_actions", [])
             if recent_actions:
                 lines.append(f"- Recent signal actions: {', '.join(recent_actions[:5])}")
+            recent_proposals = paper_summary.get("recent_proposal_actions", [])
+            if recent_proposals:
+                lines.append(f"- Recent proposal actions: {', '.join(recent_proposals[:5])}")
+            recent_finals = paper_summary.get("recent_final_actions", [])
+            if recent_finals:
+                lines.append(f"- Recent final actions: {', '.join(recent_finals[:5])}")
             positions = paper_summary.get("positions", [])
             if positions:
                 lines.append("- Open position preview:")
@@ -509,8 +777,65 @@ class PatrolStore:
             ),
             f"行動: {self._action_label(action)}",
         ]
+        ai_runtime = snapshot.get("ai_runtime") or {}
+        if ai_runtime:
+            mode = "live" if ai_runtime.get("api_enabled") else "mock"
+            lines.append(
+                "AI状態: "
+                f"{mode} "
+                f"sentiment={ai_runtime.get('sentiment_model')} "
+                f"proposal={ai_runtime.get('proposal_model')} "
+                f"council={ai_runtime.get('council_model')}"
+            )
+            if ai_runtime.get("cooldown_reason"):
+                lines.append(f"AI制限状態: {ai_runtime.get('cooldown_reason')}")
 
         confirmed = snapshot.get("confirmed_watch_tickers", [])
+        watchlist_status = snapshot.get("watchlist_status", "unknown")
+        if watchlist_status != "fresh":
+            lines.append(f"watchlist状態: {watchlist_status}")
+        if diff.get("watchlist_status_changed"):
+            before = diff.get("previous_watchlist_status", "unknown")
+            after = diff.get("current_watchlist_status", "unknown")
+            lines.append(f"watchlist状態変化: {before} → {after}")
+        if diff.get("top_watchlist_changed"):
+            before = ", ".join(diff.get("previous_top_watchlist", [])) or "なし"
+            after = ", ".join(diff.get("current_top_watchlist", [])) or "なし"
+            lines.append(f"watchlist候補変化: {before} → {after}")
+        if diff.get("runtime_config_changed"):
+            before_config = diff.get("previous_runtime_config", {})
+            after_config = diff.get("current_runtime_config", {})
+            lines.append(
+                "設定変化: "
+                f"videos {before_config.get('youtube_max_videos')}→{after_config.get('youtube_max_videos')}, "
+                f"items {before_config.get('youtube_max_items')}→{after_config.get('youtube_max_items')}, "
+                f"watchlist_age {before_config.get('max_watchlist_age_hours')}→{after_config.get('max_watchlist_age_hours')}"
+            )
+        if diff.get("ai_runtime_changed"):
+            before_mode = diff.get("previous_ai_mode", "unknown")
+            after_mode = diff.get("current_ai_mode", "unknown")
+            before_models = diff.get("previous_ai_models", {})
+            after_models = diff.get("current_ai_models", {})
+            lines.append(
+                "AI状態変化: "
+                f"{before_mode}({before_models.get('sentiment_model')},{before_models.get('proposal_model')},{before_models.get('council_model')}) "
+                "→ "
+                f"{after_mode}({after_models.get('sentiment_model')},{after_models.get('proposal_model')},{after_models.get('council_model')})"
+            )
+            if diff.get("previous_ai_cooldown") != diff.get("current_ai_cooldown"):
+                before_cooldown = diff.get("previous_ai_cooldown") or "なし"
+                after_cooldown = diff.get("current_ai_cooldown") or "なし"
+                lines.append(f"AI制限状態変化: {before_cooldown} → {after_cooldown}")
+            if diff.get("previous_ai_request_config") != diff.get("current_ai_request_config"):
+                before_request = diff.get("previous_ai_request_config", {})
+                after_request = diff.get("current_ai_request_config", {})
+                lines.append(
+                    "AIリクエスト設定変化: "
+                    f"timeout {before_request.get('request_timeout')}→{after_request.get('request_timeout')}, "
+                    f"retries {before_request.get('max_retries')}→{after_request.get('max_retries')}, "
+                    f"backoff {before_request.get('retry_backoff_seconds')}→{after_request.get('retry_backoff_seconds')}, "
+                    f"cooldown {before_request.get('cooldown_seconds')}→{after_request.get('cooldown_seconds')}"
+                )
         if confirmed:
             lines.append(f"価格確認済み監視銘柄: {', '.join(confirmed[:5])}")
         if diff.get("confirmed_watch_changed"):
@@ -530,6 +855,11 @@ class PatrolStore:
                 "紙上売買詳細: "
                 f"平均保有日数={paper_summary.get('average_holding_days', 0)} "
                 f"最近アクション={', '.join((paper_summary.get('recent_signal_actions') or [])[:3]) or 'なし'}"
+            )
+            lines.append(
+                "段階別シグナル: "
+                f"proposal={', '.join((paper_summary.get('recent_proposal_actions') or [])[:3]) or 'なし'} "
+                f"final={', '.join((paper_summary.get('recent_final_actions') or [])[:3]) or 'なし'}"
             )
             lines.append(
                 "紙上売買連続記録: "
@@ -554,6 +884,10 @@ class PatrolStore:
             before = ", ".join(diff.get("previous_top_shortlisted", [])) or "なし"
             after = ", ".join(diff.get("current_top_shortlisted", [])) or "なし"
             lines.append(f"候補絞り込み変化: {before} → {after}")
+        if diff.get("top_decisions_changed"):
+            before = ", ".join(diff.get("previous_top_decisions", [])) or "なし"
+            after = ", ".join(diff.get("current_top_decisions", [])) or "なし"
+            lines.append(f"最終判断変化: {before} → {after}")
 
         for item in snapshot.get("ai_proposals", [])[:3]:
             lines.append(

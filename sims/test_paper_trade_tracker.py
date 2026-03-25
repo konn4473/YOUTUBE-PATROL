@@ -89,6 +89,7 @@ class TestPaperTradeTracker(unittest.TestCase):
         self.assertEqual(summary["open_positions"], 1)
         self.assertIn("holding_days", summary["positions"][0])
         self.assertIn("6501:BUY", summary["recent_signal_actions"])
+        self.assertEqual(summary["recent_final_actions"], [])
 
     def test_summary_includes_streaks_and_ticker_pnl(self):
         self.tracker.apply_shortlisted_candidates(
@@ -121,6 +122,20 @@ class TestPaperTradeTracker(unittest.TestCase):
         self.assertEqual(summary["best_win_streak"], 1)
         self.assertEqual(summary["best_loss_streak"], 1)
         self.assertTrue(any(item["ticker"] == "6501" for item in summary["ticker_pnl"]))
+
+    def test_record_signal_run_keeps_final_decisions_separately(self):
+        self.tracker.record_signal_run(
+            [{"ticker": "6501", "action": "WATCH"}],
+            [{"ticker": "6501", "action": "BUY", "confidence": 0.7}],
+            {"6501": {"price": 1000, "change_rate": 1.0}},
+            final_decisions=[{"ticker": "6501", "action": "buy", "confidence": 0.6}],
+            timestamp="2026-03-16 07:30:00",
+        )
+
+        summary = self.tracker.build_summary({"6501": {"price": 1000}})
+
+        self.assertIn("6501:WATCH", summary["recent_proposal_actions"])
+        self.assertIn("6501:buy", summary["recent_final_actions"])
 
 
 if __name__ == "__main__":

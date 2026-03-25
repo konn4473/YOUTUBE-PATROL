@@ -57,13 +57,23 @@ class PaperTradeTracker:
         self._save_all()
         return events
 
-    def record_signal_run(self, ai_proposals, shortlisted_candidates, market_data, timestamp=None):
+    def record_signal_run(
+        self,
+        ai_proposals,
+        shortlisted_candidates,
+        market_data,
+        final_decisions=None,
+        timestamp=None,
+    ):
         timestamp = timestamp or self._now_text()
         referenced_tickers = []
         for item in (ai_proposals or [])[:5]:
             if item.get("ticker"):
                 referenced_tickers.append(item["ticker"])
         for item in (shortlisted_candidates or [])[:5]:
+            if item.get("ticker"):
+                referenced_tickers.append(item["ticker"])
+        for item in (final_decisions or [])[:5]:
             if item.get("ticker"):
                 referenced_tickers.append(item["ticker"])
 
@@ -81,6 +91,7 @@ class PaperTradeTracker:
                 "timestamp": timestamp,
                 "ai_proposals": list(ai_proposals or [])[:5],
                 "shortlisted_candidates": list(shortlisted_candidates or [])[:5],
+                "final_decisions": list(final_decisions or [])[:5],
                 "market_prices": price_snapshot,
             }
         )
@@ -183,7 +194,9 @@ class PaperTradeTracker:
             "best_loss_streak": self._best_streak(closed_trades, positive=False),
             "ticker_pnl": self._ticker_pnl(closed_trades),
             "recent_signals": len(self.signals[-5:]),
-            "recent_signal_actions": self._recent_signal_actions(),
+            "recent_signal_actions": self._recent_signal_actions("shortlisted_candidates"),
+            "recent_proposal_actions": self._recent_signal_actions("ai_proposals"),
+            "recent_final_actions": self._recent_signal_actions("final_decisions"),
             "positions": open_positions[:5],
         }
         self._write_json(self.summary_path, summary)
@@ -276,11 +289,11 @@ class PaperTradeTracker:
             return 0.0
         return round(max((current_dt - opened_dt).total_seconds(), 0) / 86400, 1)
 
-    def _recent_signal_actions(self):
+    def _recent_signal_actions(self, key):
         actions = []
         for run in self.signals[-5:]:
-            shortlisted = run.get("shortlisted_candidates") or []
-            for item in shortlisted[:3]:
+            rows = run.get(key) or []
+            for item in rows[:3]:
                 ticker = item.get("ticker")
                 action = item.get("action")
                 if ticker and action:

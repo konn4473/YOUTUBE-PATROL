@@ -27,6 +27,7 @@
     "bullish_watch_threshold": 0.35,
     "bearish_avoid_threshold": -0.35,
     "ai_proposal_min_confidence": 0.55,
+    "max_watchlist_age_hours": 36,
     "buy_requires_price_confirmation": true,
     "min_price_confirmation_change_pct": 0.5
   },

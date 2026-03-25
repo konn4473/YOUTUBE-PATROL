@@ -2,6 +2,7 @@ import os
 import sys
 import unittest
 from datetime import datetime, timedelta
+from unittest.mock import Mock, patch
 
 sys.path.append(os.getcwd())
 
@@ -135,7 +136,9 @@ class TestYouTubeAnalyzer(unittest.TestCase):
         analyzer.api_enabled = True
         analyzer.sentiment_request_limit = 1
         analyzer.api_key = "test-key"
-        analyzer._generate_content = lambda model, prompt: '{"score": 0.4, "reason": "ok"}'
+        analyzer._generate_content = (
+            lambda model, prompt, response_schema=None: '{"score": 0.4, "reason": "ok"}'
+        )
 
         first = analyzer.analyze_sentiment("first")
         second = analyzer.analyze_sentiment("second")
@@ -149,7 +152,7 @@ class TestYouTubeAnalyzer(unittest.TestCase):
         analyzer.api_key = "test-key"
         called = {}
 
-        def fake_generate_content(model, prompt):
+        def fake_generate_content(model, prompt, response_schema=None):
             called["model"] = model
             return '{"score": 0.4, "reason": "ok"}'
 
@@ -158,6 +161,128 @@ class TestYouTubeAnalyzer(unittest.TestCase):
         analyzer.analyze_sentiment("test")
 
         self.assertEqual(called["model"], "gemini-2.5-flash-lite")
+
+    def test_generate_content_adds_response_schema_to_payload(self):
+        analyzer = AIAnalyzer()
+        analyzer.api_enabled = True
+        analyzer.api_key = "test-key"
+
+        fake_response = Mock()
+        fake_response.raise_for_status.return_value = None
+        fake_response.json.return_value = {
+            "candidates": [{"content": {"parts": [{"text": '{"score": 0.4, "reason": "ok"}'}]}}]
+        }
+
+        with patch("engine.analyzer.requests.post", return_value=fake_response) as mock_post:
+            analyzer._generate_content(
+                "gemini-2.5-flash-lite",
+                "test prompt",
+                response_schema={
+                    "type": "OBJECT",
+                    "properties": {"score": {"type": "NUMBER"}},
+                },
+            )
+
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertEqual(
+            payload["generationConfig"]["responseMimeType"],
+            "application/json",
+        )
+        self.assertEqual(
+            payload["generationConfig"]["responseSchema"]["type"],
+            "OBJECT",
+        )
+
+    def test_resolve_model_uses_supported_fallback(self):
+        analyzer = AIAnalyzer()
+        analyzer.available_models = {"gemini-2.5-flash-lite", "gemini-2.5-flash"}
+
+        resolved = analyzer._resolve_model(
+            "gemini-2.0-flash",
+            ["gemini-2.5-flash", "gemini-2.5-flash-lite"],
+        )
+
+        self.assertEqual(resolved, "gemini-2.5-flash")
+
+    def test_normalize_trade_outputs(self):
+        analyzer = AIAnalyzer()
+
+        proposals = analyzer._normalize_trade_proposals(
+            [
+                {"ticker": "6501", "action": "buy", "confidence": 1.2, "logic": "ok"},
+                {"ticker": "", "action": "WATCH", "confidence": 0.5},
+            ]
+        )
+        decisions = analyzer._normalize_council_decisions(
+            [
+                {
+                    "ticker": "8035",
+                    "action": "BUY",
+                    "confidence": -0.2,
+                    "logic": "go",
+                    "sl_rate": 0.05,
+                    "tp_rate": 0.1,
+                }
+            ]
+        )
+
+        self.assertEqual(proposals[0]["action"], "BUY")
+        self.assertEqual(proposals[0]["confidence"], 1.0)
+        self.assertEqual(decisions[0]["action"], "buy")
+        self.assertEqual(decisions[0]["confidence"], 0.0)
+
+    def test_propose_trade_candidates_normalizes_schema_output(self):
+        analyzer = AIAnalyzer()
+        analyzer.api_enabled = True
+        analyzer.api_key = "test-key"
+        analyzer._generate_content = lambda model, prompt, response_schema=None: (
+            '[{"ticker":"6501","action":"buy","confidence":1.4,"logic":"strong"}]'
+        )
+
+        proposals = analyzer.propose_trade_candidates(
+            {
+                "market": {"6501": {"price": 1000}},
+                "news": [],
+                "youtube": [],
+                "watchlist": {
+                    "overall_action": "WATCH",
+                    "tickers": [{"ticker": "6501", "action": "WATCH"}],
+                },
+            }
+        )
+
+        self.assertEqual(proposals[0]["ticker"], "6501")
+        self.assertEqual(proposals[0]["action"], "BUY")
+        self.assertEqual(proposals[0]["confidence"], 1.0)
+
+    def test_build_runtime_info_reports_live_state_and_cooldown(self):
+        analyzer = AIAnalyzer()
+        analyzer.api_enabled = True
+        analyzer.sentiment_requests_used = 2
+        analyzer.sentiment_request_limit = 3
+        analyzer._get_cooldown_reason = lambda: "gemini cooldown active (30s remaining)"
+
+        runtime = analyzer.build_runtime_info()
+
+        self.assertTrue(runtime["api_enabled"])
+        self.assertEqual(runtime["sentiment_model"], "gemini-2.5-flash-lite")
+        self.assertEqual(runtime["request_timeout"], analyzer.request_timeout)
+        self.assertEqual(runtime["max_retries"], analyzer.max_retries)
+        self.assertEqual(runtime["retry_backoff_seconds"], analyzer.retry_backoff_seconds)
+        self.assertEqual(runtime["cooldown_seconds"], analyzer.cooldown_seconds)
+        self.assertEqual(runtime["sentiment_requests_used"], 2)
+        self.assertEqual(runtime["sentiment_request_limit"], 3)
+        self.assertEqual(runtime["cooldown_reason"], "gemini cooldown active (30s remaining)")
+
+    def test_build_runtime_info_reports_mock_state(self):
+        analyzer = AIAnalyzer()
+        analyzer.api_enabled = False
+        analyzer._get_cooldown_reason = lambda: None
+
+        runtime = analyzer.build_runtime_info()
+
+        self.assertFalse(runtime["api_enabled"])
+        self.assertIsNone(runtime["cooldown_reason"])
 
 
 if __name__ == "__main__":

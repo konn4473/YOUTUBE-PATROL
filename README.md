@@ -53,6 +53,7 @@ YouTube 巡回:
 Discord 通知では、最低限次が分かるようにしています。
 
 - `Action`
+- `AI status`
 - `Themes`
 - `Candidates`
 - `Decision`
@@ -79,6 +80,11 @@ YouTube 通知では、YouTube 単独で売買しない前提なので、`YouTub
 - `parallel_workers` で YouTube 解析を並列化する
 - `use_transcripts` を `false` にすると、ローカルでの重さを抑えられる
 - `buy_requires_price_confirmation` が有効な場合、watchlist 銘柄は価格確認が取れるまで `buy` にしない
+- `max_watchlist_age_hours` を超えた古い watchlist は `main patrol` で使わない
+- `main patrol` の report / 通知には `watchlist状態` と `AI状態` を残す
+- `main patrol` の report / 通知には `watchlist候補変化` も残す
+- `main patrol` の report には主要設定と `AI request config` も残す
+- `main patrol` の通知では `AIリクエスト設定変化` も追える
 - `S3_BUCKET` などを設定すると、生成物を外部ストレージへアップロードできる
 
 ## ローカル実行
@@ -114,7 +120,8 @@ docker-compose run --rm sim python sims/test_main_helpers.py
 定期実行ワークフローは [morning-patrol.yml](/C:/AI/Share/youtube_patrol_v2/.github/workflows/morning-patrol.yml) です。
 
 - 毎日 `07:30 JST`
-- `app` と `youtube` を順に実行
+- `youtube` のあとに `main` を実行
+- 途中失敗時も artifact を回収できるようにしている
 - `data/patrol` と `data/youtube_patrol` を artifact 保存
 
 詳しくは [docs/github_actions_guide.md](/C:/AI/Share/youtube_patrol_v2/docs/github_actions_guide.md) にまとめています。
@@ -145,6 +152,19 @@ docker-compose run --rm sim python sims/test_main_helpers.py
 - 小さな文言修正だけなら更新は不要
 - 機能追加、通知変更、監視対象変更、運用ルール変更のときは更新する
 - commit 前に、この3ファイルの更新要否を必ず確認する
+
+## エージェント運用ルール
+
+このプロジェクトでエージェントが作業するときの基本ルールは [AGENTS.md](/C:/AI/Share/youtube_patrol_v2/AGENTS.md) にまとめています。
+
+要点:
+
+- 作業は `調査 -> 実装 -> 検証 -> 統合` の順で進める
+- 1 人のエージェントが役割を順番に切り替えて進める
+- 既存仕様の確認を先に行い、不明点は未確認として扱う
+- 実行や検証はできるだけ docker 前提で行う
+
+`obra/superpowers` の考え方をこのプロジェクト向けに薄く整理した背景は [docs/superpowers_adoption.md](/C:/AI/Share/youtube_patrol_v2/docs/superpowers_adoption.md) にあります。
 
 ## 運用の考え方
 

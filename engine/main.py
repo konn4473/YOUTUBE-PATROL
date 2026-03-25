@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import time
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 sys.path.append(os.getcwd())
@@ -22,6 +23,30 @@ def load_config():
     return {}
 
 
+def build_runtime_config_snapshot(config):
+    watchlist_rules = config.get("watchlist_rules", {})
+    youtube_targets = config.get("youtube_patrol_targets", {})
+    return {
+        "youtube_max_videos": config.get("youtube_max_videos", 3),
+        "enable_youtube_analysis": config.get("enable_youtube_analysis", False),
+        "enable_youtube_job": config.get("enable_youtube_job", False),
+        "youtube_recent_hours": youtube_targets.get("recent_hours"),
+        "youtube_max_items": youtube_targets.get("max_items"),
+        "use_transcripts": youtube_targets.get("use_transcripts"),
+        "parallel_workers": youtube_targets.get("parallel_workers"),
+        "max_watchlist_age_hours": watchlist_rules.get("max_watchlist_age_hours", 36),
+        "buy_requires_price_confirmation": watchlist_rules.get(
+            "buy_requires_price_confirmation", False
+        ),
+        "min_price_confirmation_change_pct": watchlist_rules.get(
+            "min_price_confirmation_change_pct", 0.5
+        ),
+        "ai_proposal_min_confidence": watchlist_rules.get(
+            "ai_proposal_min_confidence", 0.55
+        ),
+    }
+
+
 def main():
     print("YouTube Patrol v2.0 starting...")
 
@@ -35,9 +60,15 @@ def main():
     patrol_store = PatrolStore(data_dir="data")
     latest_watchlist = patrol_store.load_latest_watchlist() or {}
     watchlist_rules = config.get("watchlist_rules", {})
+    active_watchlist, watchlist_status = select_active_watchlist(
+        latest_watchlist,
+        watchlist_rules,
+    )
+    if watchlist_status != "fresh":
+        print(f"Watchlist status: {watchlist_status}")
     watch_tickers = [
         item.get("ticker")
-        for item in latest_watchlist.get("tickers", [])[:5]
+        for item in active_watchlist.get("tickers", [])[:5]
         if item.get("ticker") and item.get("action") == "WATCH"
     ]
     tickers = list(dict.fromkeys(tickers + watch_tickers))
@@ -52,7 +83,7 @@ def main():
     market_data = collector.fetch_market_data()
     news_data = collector.fetch_news(feeds=config.get("news_feeds"))
     confirmed_watch_tickers = confirmed_by_price(
-        latest_watchlist, market_data, watchlist_rules
+        active_watchlist, market_data, watchlist_rules
     )
     paper_trade_events = paper_tracker.mark_to_market(market_data)
 
@@ -74,7 +105,7 @@ def main():
         "market": market_data,
         "news": news_data,
         "youtube": youtube_sentiment,
-        "watchlist": latest_watchlist,
+        "watchlist": active_watchlist,
         "confirmed_watch_tickers": confirmed_watch_tickers,
         "portfolio": broker.portfolio,
     }
@@ -82,7 +113,7 @@ def main():
     ai_proposals = analyzer.propose_trade_candidates(context)
     shortlisted_candidates = shortlist_ai_proposals(
         ai_proposals,
-        latest_watchlist,
+        active_watchlist,
         market_data,
         news_data,
         confirmed_watch_tickers,
@@ -90,11 +121,6 @@ def main():
     )
     context["ai_proposals"] = ai_proposals
     context["shortlisted_candidates"] = shortlisted_candidates
-    paper_tracker.record_signal_run(
-        ai_proposals,
-        shortlisted_candidates,
-        market_data,
-    )
     paper_trade_events.extend(
         paper_tracker.apply_shortlisted_candidates(
             shortlisted_candidates,
@@ -102,12 +128,18 @@ def main():
             config.get("risk", {}),
         )
     )
-    paper_trade_summary = paper_tracker.build_summary(market_data)
 
     decisions = analyzer.consult_council(context)
     decisions = filter_decisions_by_watchlist(
-        decisions, latest_watchlist, confirmed_watch_tickers, watchlist_rules
+        decisions, active_watchlist, confirmed_watch_tickers, watchlist_rules
     )
+    paper_tracker.record_signal_run(
+        ai_proposals,
+        shortlisted_candidates,
+        market_data,
+        final_decisions=decisions,
+    )
+    paper_trade_summary = paper_tracker.build_summary(market_data)
     print(f"Council decisions: {len(decisions)}")
 
     for d in decisions:
@@ -140,7 +172,10 @@ def main():
             "market": market_data,
             "news": news_data,
             "youtube": youtube_sentiment,
-            "watchlist": latest_watchlist,
+            "watchlist": active_watchlist,
+            "watchlist_status": watchlist_status,
+            "runtime_config": build_runtime_config_snapshot(config),
+            "ai_runtime": analyzer.build_runtime_info(),
             "confirmed_watch_tickers": confirmed_watch_tickers,
             "ai_proposals": ai_proposals,
             "shortlisted_candidates": shortlisted_candidates,
@@ -174,6 +209,23 @@ def confirmed_by_price(watchlist, market_data, watchlist_rules):
         if change_rate >= min_change:
             confirmed.append(ticker)
     return confirmed
+
+
+def select_active_watchlist(watchlist, watchlist_rules, now=None):
+    if not watchlist:
+        return {}, "missing"
+
+    max_age_hours = float(watchlist_rules.get("max_watchlist_age_hours", 36))
+    timestamp_text = watchlist.get("timestamp")
+    watchlist_dt = _parse_watchlist_timestamp(timestamp_text)
+    if not watchlist_dt:
+        return {}, "stale (missing timestamp)"
+
+    now = now or datetime.now()
+    age = now - watchlist_dt
+    if age > timedelta(hours=max_age_hours):
+        return {}, f"stale ({round(age.total_seconds() / 3600, 1)}h old)"
+    return watchlist, "fresh"
 
 
 def filter_decisions_by_watchlist(decisions, watchlist, confirmed_watch_tickers, watchlist_rules):
@@ -294,6 +346,15 @@ def _safe_float(value, default=0.0):
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _parse_watchlist_timestamp(value):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return None
 
 
 if __name__ == "__main__":

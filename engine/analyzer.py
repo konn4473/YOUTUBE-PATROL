@@ -6,6 +6,56 @@ from datetime import datetime, timedelta, timezone
 import requests
 
 
+SENTIMENT_RESPONSE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "score": {"type": "NUMBER"},
+        "reason": {"type": "STRING"},
+    },
+    "required": ["score", "reason"],
+    "propertyOrdering": ["score", "reason"],
+}
+
+TRADE_PROPOSALS_RESPONSE_SCHEMA = {
+    "type": "ARRAY",
+    "items": {
+        "type": "OBJECT",
+        "properties": {
+            "ticker": {"type": "STRING"},
+            "action": {"type": "STRING"},
+            "confidence": {"type": "NUMBER"},
+            "logic": {"type": "STRING"},
+        },
+        "required": ["ticker", "action", "confidence", "logic"],
+        "propertyOrdering": ["ticker", "action", "confidence", "logic"],
+    },
+}
+
+COUNCIL_DECISIONS_RESPONSE_SCHEMA = {
+    "type": "ARRAY",
+    "items": {
+        "type": "OBJECT",
+        "properties": {
+            "ticker": {"type": "STRING"},
+            "action": {"type": "STRING"},
+            "confidence": {"type": "NUMBER"},
+            "logic": {"type": "STRING"},
+            "sl_rate": {"type": "NUMBER", "nullable": True},
+            "tp_rate": {"type": "NUMBER", "nullable": True},
+        },
+        "required": ["ticker", "action", "confidence", "logic"],
+        "propertyOrdering": [
+            "ticker",
+            "action",
+            "confidence",
+            "logic",
+            "sl_rate",
+            "tp_rate",
+        ],
+    },
+}
+
+
 class AIAnalyzer:
     def __init__(self):
         self.api_enabled = False
@@ -16,6 +66,21 @@ class AIAnalyzer:
         )
         self.proposal_model = os.getenv("GEMINI_PROPOSAL_MODEL", "gemini-2.0-flash")
         self.council_model = os.getenv("GEMINI_COUNCIL_MODEL", "gemini-2.0-flash")
+        self.sentiment_fallback_models = self._parse_model_fallbacks(
+            os.getenv("GEMINI_SENTIMENT_FALLBACK_MODELS", "gemini-2.5-flash-lite")
+        )
+        self.proposal_fallback_models = self._parse_model_fallbacks(
+            os.getenv(
+                "GEMINI_PROPOSAL_FALLBACK_MODELS",
+                "gemini-2.5-flash,gemini-2.5-flash-lite",
+            )
+        )
+        self.council_fallback_models = self._parse_model_fallbacks(
+            os.getenv(
+                "GEMINI_COUNCIL_FALLBACK_MODELS",
+                "gemini-2.5-flash,gemini-2.5-flash-lite",
+            )
+        )
         self.sentiment_request_limit = int(
             os.getenv("GEMINI_SENTIMENT_REQUEST_LIMIT", "3")
         )
@@ -28,8 +93,19 @@ class AIAnalyzer:
         self.cooldown_path = os.path.join("data", "gemini_cooldown.json")
         self.sentiment_requests_used = 0
         self.sequential_sentiment_mode = True
+        self.available_models = None
         if self.api_key and self.api_key != "your_google_api_key_here":
             self.api_enabled = True
+            self.available_models = self._list_available_models()
+            self.sentiment_model = self._resolve_model(
+                self.sentiment_model, self.sentiment_fallback_models
+            )
+            self.proposal_model = self._resolve_model(
+                self.proposal_model, self.proposal_fallback_models
+            )
+            self.council_model = self._resolve_model(
+                self.council_model, self.council_fallback_models
+            )
             print(
                 "Gemini models: "
                 f"sentiment={self.sentiment_model}, "
@@ -39,6 +115,22 @@ class AIAnalyzer:
         else:
             self.api_key = None
             print("GOOGLE_API_KEY is not configured. Running in mock mode.")
+
+    def build_runtime_info(self):
+        cooldown_reason = self._get_cooldown_reason()
+        return {
+            "api_enabled": self.api_enabled,
+            "sentiment_model": self.sentiment_model,
+            "proposal_model": self.proposal_model,
+            "council_model": self.council_model,
+            "request_timeout": self.request_timeout,
+            "max_retries": self.max_retries,
+            "retry_backoff_seconds": self.retry_backoff_seconds,
+            "cooldown_seconds": self.cooldown_seconds,
+            "sentiment_request_limit": self.sentiment_request_limit,
+            "sentiment_requests_used": self.sentiment_requests_used,
+            "cooldown_reason": cooldown_reason,
+        }
 
     def analyze_sentiment(self, text):
         if not self.api_enabled:
@@ -69,7 +161,11 @@ class AIAnalyzer:
             f"Text:\n{text}"
         )
         try:
-            response_text = self._generate_content(self.sentiment_model, prompt)
+            response_text = self._generate_content(
+                self.sentiment_model,
+                prompt,
+                response_schema=SENTIMENT_RESPONSE_SCHEMA,
+            )
             if not response_text:
                 return {"score": 0.0, "reason": "sentiment analysis timeout"}
             return self._parse_json_response(
@@ -103,10 +199,15 @@ class AIAnalyzer:
             f"Context:\n{json.dumps(compact_context, ensure_ascii=False, indent=2)}"
         )
         try:
-            response_text = self._generate_content(self.council_model, prompt)
+            response_text = self._generate_content(
+                self.council_model,
+                prompt,
+                response_schema=COUNCIL_DECISIONS_RESPONSE_SCHEMA,
+            )
             if not response_text:
                 return []
-            return self._parse_json_response(response_text, [])
+            parsed = self._parse_json_response(response_text, [])
+            return self._normalize_council_decisions(parsed)
         except Exception as exc:
             print(f"Council analysis failed: {exc}")
             return []
@@ -134,30 +235,22 @@ class AIAnalyzer:
             f"Context:\n{json.dumps(compact_context, ensure_ascii=False, indent=2)}"
         )
         try:
-            response_text = self._generate_content(self.proposal_model, prompt)
+            response_text = self._generate_content(
+                self.proposal_model,
+                prompt,
+                response_schema=TRADE_PROPOSALS_RESPONSE_SCHEMA,
+            )
             if not response_text:
                 return []
             parsed = self._parse_json_response(response_text, [])
-            if not isinstance(parsed, list):
-                return []
-            return parsed[:3]
+            return self._normalize_trade_proposals(parsed)
         except Exception as exc:
             print(f"AI proposal generation failed: {exc}")
             return []
 
-    def _generate_content(self, model, prompt):
+    def _generate_content(self, model, prompt, response_schema=None):
         url = f"{self.base_url}/{model}:generateContent?key={self.api_key}"
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {
-                            "text": prompt,
-                        }
-                    ]
-                }
-            ]
-        }
+        payload = self._build_generation_payload(prompt, response_schema=response_schema)
         last_error = None
         for attempt in range(self.max_retries + 1):
             try:
@@ -207,6 +300,62 @@ class AIAnalyzer:
             raise last_error
         return None
 
+    def _build_generation_payload(self, prompt, response_schema=None):
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "text": prompt,
+                        }
+                    ]
+                }
+            ]
+        }
+        if response_schema:
+            payload["generationConfig"] = {
+                "responseMimeType": "application/json",
+                "responseSchema": response_schema,
+            }
+        return payload
+
+    def _list_available_models(self):
+        try:
+            response = requests.get(
+                f"{self.base_url}?key={self.api_key}",
+                timeout=self.request_timeout,
+            )
+            response.raise_for_status()
+            data = response.json()
+            models = set()
+            for item in data.get("models", []):
+                name = str(item.get("name", ""))
+                if name.startswith("models/"):
+                    models.add(name.split("models/", 1)[1])
+            return models or None
+        except requests.RequestException as exc:
+            print(f"Gemini model list lookup failed: {exc}")
+            return None
+
+    def _resolve_model(self, preferred, fallbacks):
+        if not self.available_models:
+            return preferred
+        candidates = [preferred] + [item for item in fallbacks if item != preferred]
+        for model in candidates:
+            if model in self.available_models:
+                if model != preferred:
+                    print(f"Gemini model fallback: {preferred} -> {model}")
+                return model
+        return preferred
+
+    def _parse_model_fallbacks(self, raw):
+        values = []
+        for item in str(raw or "").split(","):
+            model = item.strip()
+            if model and model not in values:
+                values.append(model)
+        return values
+
     def _get_cooldown_reason(self):
         if not os.path.exists(self.cooldown_path):
             return None
@@ -242,6 +391,72 @@ class AIAnalyzer:
             return json.loads(cleaned)
         except Exception:
             return fallback
+
+    def _normalize_trade_proposals(self, parsed):
+        if not isinstance(parsed, list):
+            return []
+        normalized = []
+        allowed_actions = {"BUY", "WATCH", "AVOID", "NO SIGNAL", "SELL"}
+        for item in parsed[:5]:
+            if not isinstance(item, dict):
+                continue
+            ticker = str(item.get("ticker", "")).strip().upper()
+            action = str(item.get("action", "")).strip().upper()
+            if not ticker or action not in allowed_actions:
+                continue
+            confidence = self._bounded_confidence(item.get("confidence"))
+            logic = str(item.get("logic", "")).strip() or "no logic provided"
+            normalized.append(
+                {
+                    "ticker": ticker,
+                    "action": action,
+                    "confidence": confidence,
+                    "logic": logic,
+                }
+            )
+        return normalized[:3]
+
+    def _normalize_council_decisions(self, parsed):
+        if not isinstance(parsed, list):
+            return []
+        normalized = []
+        allowed_actions = {"buy", "sell", "watch", "avoid", "wait", "no signal"}
+        for item in parsed[:5]:
+            if not isinstance(item, dict):
+                continue
+            ticker = str(item.get("ticker", "")).strip().upper()
+            action = str(item.get("action", "")).strip().lower()
+            if not ticker or action not in allowed_actions:
+                continue
+            confidence = self._bounded_confidence(item.get("confidence"))
+            logic = str(item.get("logic", "")).strip() or "no logic provided"
+            normalized.append(
+                {
+                    "ticker": ticker,
+                    "action": action,
+                    "confidence": confidence,
+                    "logic": logic,
+                    "sl_rate": self._safe_rate(item.get("sl_rate")),
+                    "tp_rate": self._safe_rate(item.get("tp_rate")),
+                }
+            )
+        return normalized[:3]
+
+    def _bounded_confidence(self, value):
+        try:
+            confidence = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        return round(max(0.0, min(confidence, 1.0)), 2)
+
+    def _safe_rate(self, value):
+        try:
+            rate = float(value)
+        except (TypeError, ValueError):
+            return None
+        if rate <= 0:
+            return None
+        return round(rate, 4)
 
     def _compact_context(self, data_context):
         news_items = []

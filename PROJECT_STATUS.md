@@ -1,6 +1,6 @@
 # Project Status
 
-最終更新: 2026-03-19
+最終更新: 2026-03-25
 
 ## 目的
 `youtube_patrol_v2` は、YouTube とニュースを使って監視候補を抽出し、価格確認を通したうえで売買判断の材料を作る巡回システムです。
@@ -13,6 +13,7 @@
 - `BUY / WATCH / AVOID / NO SIGNAL` の行動ラベルを出す
 - ニュースと価格で裏取りする
 - AI 提案を出す
+- Gemini の AI 出力を schema 付き JSON で受ける
 - AI 提案の紙上売買を記録し、仮想損益を集計する
 - Gemini が使えない日でも YouTube 巡回を軽量モードで継続する
 - fixed / search の寄与を watchlist と通知で見分ける
@@ -23,13 +24,16 @@
 
 ## 現在の運用フロー
 
-1. YouTube の固定チャンネルと検索結果を収集する
-2. テーマと候補銘柄を watchlist にまとめる
-3. AI が候補を提案する
-4. ニュースと価格で裏取りする
-5. council が最終判断する
-6. AI 提案は紙上売買にも記録し、損益を追跡する
-7. `AVOID` は AI 提案と最終判断の両方で安全側に反映する
+1. GitHub Actions では最初に `youtube patrol` を実行する
+2. YouTube の固定チャンネルと検索結果を収集する
+3. テーマと候補銘柄を watchlist にまとめる
+4. 同じ run の続きで `main patrol` が最新 watchlist を読む
+5. AI が候補を提案する
+6. ニュースと価格で裏取りする
+7. council が最終判断する
+8. `proposal / shortlisted / final decision` を分けて保存する
+9. AI 提案と最終判断を紙上売買の集計で分けて追跡する
+10. `AVOID` は AI 提案と最終判断の両方で安全側に反映する
 
 ## 現在の監視対象
 
@@ -101,14 +105,21 @@
 ## 現在わかっていること
 
 - GitHub Actions では完走できている
+- GitHub Actions では `youtube -> main` の順で実行し、同一 run の最新 watchlist を main が使う
 - 実行時間と quota を見て、YouTube 処理量は少し抑えた
 - 実行時間はやや長めなので、今後も監視は必要
 - Gemini の quota によっては日によって応答が重くなる
 - Gemini 2.5 Flash Lite を感情分析に使い、RPM 超過を抑える
 - watchlist はまだ検索由来が強く、固定チャンネル由来は観察中
+- 古い watchlist は `main patrol` で使わず、安全側に倒す
 - YouTube 通知は watchlist 行動や上位候補の変化でも飛ぶ
 - main 通知は confirmed watch、AI提案、候補絞り込みの差分を出す
-- 紙上売買では保有日数と最近のシグナル行動まで追跡できる
+- main 通知は最終判断の差分も出せる
+- main 通知は watchlist 上位候補の差分も出せる
+- main の report / 通知では AI の live/mock、model、cooldown 状態も追える
+- main の report では主要設定と AI request config も追える
+- main 通知では AIリクエスト設定変化も追える
+- 紙上売買では保有日数と最近のシグナル行動に加えて、proposal と final の段階差も追跡できる
 
 ## 直近の評価
 
